@@ -963,22 +963,36 @@ select {
 }
 
 .lesson-delete {
-  margin-top: 14px;
-  padding: 7px 10px;
-  border: 1px solid rgba(239, 98, 98, 0.35);
-  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: 10px 0 0 auto;
+  padding: 5px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
-  color: var(--red);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 750;
+  color: var(--muted);
+  opacity: 0.65;
   cursor: pointer;
   transition: 0.2s;
 }
 
+.lesson-delete svg {
+  width: 17px;
+  height: 17px;
+}
+
 .lesson-delete:hover {
-  background: var(--red);
-  color: white;
+  border-color: rgba(239, 98, 98, 0.28);
+  background: rgba(239, 98, 98, 0.08);
+  color: var(--red);
+  opacity: 1;
+}
+
+.lesson-delete:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
 }
 
 .lesson small {
