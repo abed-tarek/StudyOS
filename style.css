@@ -705,24 +705,17 @@ select {
   color: var(--text);
 }
 
-.lesson-form-panel {
-  margin: 16px 0 20px;
-  padding: 18px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-}
-
-.lesson-form-panel h3 {
-  margin: 0 0 14px;
-  font-size: 15px;
+.lesson-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 .lesson-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  align-items: end;
+  padding: 20px;
 }
 
 .lesson-form label {
@@ -745,8 +738,54 @@ select {
   font: inherit;
 }
 
-.lesson-form button {
-  justify-self: start;
+.lesson-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(5px);
+}
+
+.lesson-modal.show {
+  display: flex;
+}
+
+.lesson-dialog {
+  width: min(620px, 96vw);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.5);
+}
+
+.lesson-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 0;
+}
+
+.lesson-dialog-header h2 {
+  margin: 5px 0 0;
+  font-size: 21px;
+}
+
+.lesson-dialog-close {
+  background: var(--surface2);
+  color: var(--text);
+}
+
+.lesson-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  grid-column: 1 / -1;
+  padding-top: 4px;
 }
 
 /* ========================================
@@ -1287,6 +1326,10 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .lesson-dialog-actions {
+    grid-column: auto;
+  }
+
   .calendar {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1307,6 +1350,12 @@ select {
 
   .subject-tab {
     white-space: nowrap;
+  }
+
+  .lesson-heading-actions {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .calendar {

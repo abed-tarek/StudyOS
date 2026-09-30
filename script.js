@@ -1238,6 +1238,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && $("#videoModal").classList.contains("show")) {
     closeVideo();
   }
+  if (event.key === "Escape" && $("#lessonModal").classList.contains("show")) {
+    closeLessonForm();
+  }
 });
 
 /* EXTERNAL VIDEO FALLBACK */
@@ -1265,6 +1268,26 @@ $("#addBtn").addEventListener("click", () => {
 });
 
 /* ADD LESSON */
+function closeLessonForm() {
+  const modal = $("#lessonModal");
+  modal.classList.remove("show");
+  modal.setAttribute("aria-hidden", "true");
+  $("#lessonAdd").focus();
+}
+
+$("#lessonAdd").addEventListener("click", () => {
+  const modal = $("#lessonModal");
+  modal.classList.add("show");
+  modal.setAttribute("aria-hidden", "false");
+  $("#lessonForm").elements.subject.focus();
+});
+
+$("#lessonClose").addEventListener("click", closeLessonForm);
+$("#lessonCancel").addEventListener("click", closeLessonForm);
+$("#lessonModal").addEventListener("click", (event) => {
+  if (event.target === $("#lessonModal")) closeLessonForm();
+});
+
 $("#lessonForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
@@ -1288,6 +1311,7 @@ $("#lessonForm").addEventListener("submit", (event) => {
   event.currentTarget.reset();
   renderLessons();
   renderSubjects();
+  closeLessonForm();
   toast("Lesson saved");
 });
 

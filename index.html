@@ -180,43 +180,10 @@
             <div class="section-head">
               <h2>Lesson Library</h2>
 
-              <span> Your lessons & teacher portals </span>
-            </div>
-
-            <div class="lesson-form-panel">
-              <h3>Add a lesson</h3>
-              <form id="lessonForm" class="lesson-form">
-                <label>
-                  Subject
-                  <select name="subject" required>
-                    <option value="Math">Math</option>
-                    <option value="Physics">Physics</option>
-                    <option value="Chemistry">Chemistry</option>
-                    <option value="English">English</option>
-                    <option value="Arabic">Arabic</option>
-                  </select>
-                </label>
-                <label>
-                  Lesson title
-                  <input name="title" type="text" maxlength="120" placeholder="e.g. Chapter 2 — Session 1" required />
-                </label>
-                <label>
-                  Type
-                  <select name="type">
-                    <option>Video</option>
-                    <option>Course Library</option>
-                  </select>
-                </label>
-                <label>
-                  Teacher / portal name
-                  <input name="teacher" type="text" maxlength="80" placeholder="Optional" />
-                </label>
-                <label class="lesson-url-field">
-                  Video or portal URL
-                  <input name="url" type="url" placeholder="https://…" />
-                </label>
-                <button class="primary" type="submit">＋ Save lesson</button>
-              </form>
+              <div class="lesson-heading-actions">
+                <span> Your lessons & teacher portals </span>
+                <button class="primary" id="lessonAdd" type="button">＋ Add lesson</button>
+              </div>
             </div>
 
             <div class="subject-tabs">
@@ -264,6 +231,53 @@
 
             <div class="lesson-grid" id="lessonGrid"></div>
           </section>
+
+          <div class="lesson-modal" id="lessonModal" aria-hidden="true">
+            <section class="lesson-dialog" role="dialog" aria-modal="true" aria-labelledby="lessonDialogTitle">
+              <header class="lesson-dialog-header">
+                <div>
+                  <div class="eyebrow">Lesson library</div>
+                  <h2 id="lessonDialogTitle">Add a lesson</h2>
+                </div>
+                <button class="video-close lesson-dialog-close" id="lessonClose" type="button" aria-label="Close">×</button>
+              </header>
+              <form id="lessonForm" class="lesson-form">
+                <label>
+                  Subject
+                  <select name="subject" required>
+                    <option value="Math">Math</option>
+                    <option value="Physics">Physics</option>
+                    <option value="Chemistry">Chemistry</option>
+                    <option value="English">English</option>
+                    <option value="Arabic">Arabic</option>
+                  </select>
+                </label>
+                <label>
+                  Lesson title
+                  <input name="title" type="text" maxlength="120" placeholder="e.g. Chapter 2 — Session 1" required />
+                </label>
+                <label>
+                  Type
+                  <select name="type">
+                    <option>Video</option>
+                    <option>Course Library</option>
+                  </select>
+                </label>
+                <label>
+                  Teacher / portal name
+                  <input name="teacher" type="text" maxlength="80" placeholder="Optional" />
+                </label>
+                <label class="lesson-url-field">
+                  Video or portal URL
+                  <input name="url" type="url" placeholder="https://…" required />
+                </label>
+                <footer class="lesson-dialog-actions">
+                  <button class="icon-btn" id="lessonCancel" type="button">Cancel</button>
+                  <button class="primary" type="submit">Save lesson</button>
+                </footer>
+              </form>
+            </section>
+          </div>
 
           <!-- ================= STUDY PLAN ================= -->
 
