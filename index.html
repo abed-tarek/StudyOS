@@ -12,6 +12,7 @@
       src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=86YdiPMqEUffgQeyxJmUa8LwDPw46iYRn3h0B5rLAag6OeriDqKqZJQQPJQcr282lAsSTmkffJ2CREdJMtPjwj8kBVoG9p37RkSaet7fj0EhwiIkurlqeAaiwNPziZRvmlH8UWkOyvQWKERESP2Snk4MGOO3sWsnLGhIHM_GMDPYcMcETx7Wy4pTwFt2xlSZD6aXuA4Qy1pFzuZkJNWbsu_abZcwUQqqWr4_1U6uy2YtOSum-Bwdsbek145yo5XqLlKm1A7A3v_oO0_W6QUCUxzlDNltSLme8-c-BCY735Z6-mj0q8ET7YMFxnUIa69A"
       charset="UTF-8"
     ></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
     <script src="script.js" defer></script>
   </head>
 
@@ -49,10 +50,10 @@
             <p>You're building momentum. Keep today's streak alive.</p>
 
             <div class="progress-mini">
-              <span></span>
+              <span id="yearProgressBar" style="width:0%"></span>
             </div>
 
-            <small>Keep going 🚀</small>
+            <small id="yearProgressText">Sign in to see progress</small>
           </div>
         </aside>
 
@@ -72,8 +73,13 @@
               <button class="icon-btn" id="focusBtn">🎯 Focus</button>
 
               <button class="primary" id="addBtn">＋ Add Task</button>
+              <span class="auth-user" id="authUserLabel">Signed out</span>
+              <button class="icon-btn" id="authButton" type="button">Sign in / Sign up</button>
+              <button class="icon-btn" id="signOutButton" type="button" hidden>Sign out</button>
             </div>
           </header>
+
+          <div class="backend-notice" id="backendNotice" role="status" hidden></div>
 
           <!-- ================= DASHBOARD ================= -->
 
@@ -92,17 +98,17 @@
 
                 <div class="hero-stat">
                   <div>
-                    <b>2h 15m</b>
+                    <b id="plannedTodayValue">0</b>
                     <span>planned today</span>
                   </div>
 
                   <div>
-                    <b>7</b>
+                    <b id="remainingTasksValue">0</b>
                     <span>tasks remaining</span>
                   </div>
 
                   <div>
-                    <b>12</b>
+                    <b id="dayStreakValue">0</b>
                     <span>day streak</span>
                   </div>
                 </div>
@@ -267,6 +273,10 @@
                   Teacher / portal name
                   <input name="teacher" type="text" maxlength="80" placeholder="Optional" />
                 </label>
+                <label>
+                  Duration (minutes)
+                  <input name="duration" type="number" min="0" step="1" placeholder="Optional" />
+                </label>
                 <label class="lesson-url-field">
                   Video or portal URL
                   <input name="url" type="url" placeholder="https://…" required />
@@ -290,18 +300,18 @@
 
             <div class="stats">
               <div class="stat-card">
-                <b>14.5h</b>
-                <p>Planned this week</p>
+                <b id="weeklyPlanCount">0</b>
+                <p>Sessions in weekly plan</p>
               </div>
 
               <div class="stat-card">
-                <b>9.2h</b>
-                <p>Completed this week</p>
+                <b id="weeklyTaskDone">0</b>
+                <p>Tasks completed this week</p>
               </div>
 
               <div class="stat-card">
-                <b>63%</b>
-                <p>Weekly completion</p>
+                <b id="weeklyTaskProgress">0%</b>
+                <p>Task completion</p>
               </div>
             </div>
 
@@ -341,7 +351,7 @@
               </div>
 
               <div class="stat-card">
-                <b> 12 days </b>
+                <b id="progressStreakValue">0 days</b>
 
                 <p>Current streak</p>
               </div>
@@ -382,9 +392,11 @@
                     <th>Type</th>
                     <th>Teacher</th>
                     <th>Duration</th>
-                    <th>Priority</th>
-                    <th>Revision</th>
+                    <th>Score</th>
+                    <th>Content / Notes</th>
                     <th>Book/Page</th>
+                    <th>Resource</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
 
@@ -423,6 +435,71 @@
             </div>
           </section>
         </main>
+      </div>
+
+      <div class="app-modal" id="authModal" aria-hidden="true">
+        <section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle">
+          <header class="app-dialog-header">
+            <div>
+              <div class="eyebrow">StudyOS account</div>
+              <h2 id="authDialogTitle">Sign in</h2>
+              <p id="authDialogDescription">Sign in to sync your study data across devices.</p>
+            </div>
+            <button class="video-close app-dialog-close" type="button" data-close-modal="authModal" aria-label="Close">×</button>
+          </header>
+          <form id="authForm" class="app-form">
+            <label>Email<input name="email" type="email" autocomplete="email" required /></label>
+            <label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required /></label>
+            <p class="form-message" id="authFormMessage" role="status"></p>
+            <footer class="app-dialog-actions">
+              <button class="icon-btn" type="button" id="authModeToggle">Create account</button>
+              <button class="primary" type="submit" id="authSubmitButton">Sign in</button>
+            </footer>
+          </form>
+        </section>
+      </div>
+
+      <div class="app-modal" id="taskModal" aria-hidden="true">
+        <section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="taskDialogTitle">
+          <header class="app-dialog-header">
+            <div><div class="eyebrow">Study plan</div><h2 id="taskDialogTitle">Add a task</h2></div>
+            <button class="video-close app-dialog-close" type="button" data-close-modal="taskModal" aria-label="Close">×</button>
+          </header>
+          <form id="taskForm" class="app-form">
+            <input name="id" type="hidden" />
+            <label>Task title<input name="title" maxlength="160" required /></label>
+            <label>Subject<select name="subject" required><option>Math</option><option>Physics</option><option>Chemistry</option><option>English</option><option>Arabic</option><option>Questions</option><option>Other</option></select></label>
+            <label>Date<input name="scheduled_date" type="date" required /></label>
+            <label>Time<input name="scheduled_time" type="time" /></label>
+            <label>Status<select name="status"><option>Planned</option><option>In progress</option><option>Completed</option></select></label>
+            <p class="form-message" id="taskFormMessage" role="status"></p>
+            <footer class="app-dialog-actions"><button class="icon-btn" type="button" data-close-modal="taskModal">Cancel</button><button class="primary" type="submit">Save task</button></footer>
+          </form>
+        </section>
+      </div>
+
+      <div class="app-modal" id="recordModal" aria-hidden="true">
+        <section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="recordDialogTitle">
+          <header class="app-dialog-header">
+            <div><div class="eyebrow">Study database</div><h2 id="recordDialogTitle">Add a record</h2></div>
+            <button class="video-close app-dialog-close" type="button" data-close-modal="recordModal" aria-label="Close">×</button>
+          </header>
+          <form id="recordForm" class="app-form">
+            <input name="id" type="hidden" />
+            <label>Subject<select name="subject" required><option>Math</option><option>Physics</option><option>Chemistry</option><option>English</option><option>Arabic</option><option>Other</option></select></label>
+            <label>Topic<input name="topic" maxlength="160" required /></label>
+            <label>Type<select name="record_type" required><option>Homework</option><option>Exam</option><option>Mistake</option><option>Flashcard</option><option>PDF</option><option>Important note</option></select></label>
+            <label>Teacher<input name="teacher" maxlength="120" /></label>
+            <label>Duration (minutes)<input name="duration" type="number" min="0" step="1" /></label>
+            <label>Score<input name="score" type="number" min="0" step="any" /></label>
+            <label>Maximum score<input name="max_score" type="number" min="0" step="any" /></label>
+            <label>Book / Page<input name="book_page" maxlength="120" /></label>
+            <label class="form-wide">Content / Notes<textarea name="content" rows="4" maxlength="10000"></textarea></label>
+            <label class="form-wide">Resource URL<input name="resource_url" type="url" /></label>
+            <p class="form-message" id="recordFormMessage" role="status"></p>
+            <footer class="app-dialog-actions form-wide"><button class="icon-btn" type="button" data-close-modal="recordModal">Cancel</button><button class="primary" type="submit">Save record</button></footer>
+          </form>
+        </section>
       </div>
 
       <!-- ================= VIDEO MODAL ================= -->

@@ -255,9 +255,12 @@ const lessons = [
   ],
 ];
 
-// User-created lessons are stored separately from the built-in lesson list.
+const builtInLessons = lessons.slice();
+
+// These local values are read only to migrate data from the previous version.
 let savedLessons = [];
 let deletedBuiltInLessons = [];
+let legacyCompletedTitles = [];
 try {
   const storedDeletedLessons = JSON.parse(
     localStorage.getItem("studyos_deleted_builtin_lessons") || "[]",
@@ -266,16 +269,6 @@ try {
     deletedBuiltInLessons = storedDeletedLessons.filter(
       (lessonKey) => typeof lessonKey === "string",
     );
-    const deletedLessonKeys = new Set(deletedBuiltInLessons);
-    for (let index = lessons.length - 1; index >= 0; index -= 1) {
-      const lesson = lessons[index];
-      if (
-        lesson[2] === "Video" &&
-        deletedLessonKeys.has(JSON.stringify(lesson))
-      ) {
-        lessons.splice(index, 1);
-      }
-    }
   }
 
   const storedLessons = JSON.parse(localStorage.getItem("studyos_lessons") || "[]");
@@ -285,122 +278,29 @@ try {
     );
     lessons.push(...savedLessons);
   }
+  const storedCompleted = JSON.parse(localStorage.getItem("studyos_completed") || "[]");
+  if (Array.isArray(storedCompleted)) legacyCompletedTitles = storedCompleted;
 } catch (error) {
-  console.warn("Could not load saved lessons", error);
+  console.warn("Could not read legacy StudyOS data", error);
 }
-
-/* ========================================
-   TEACHERS
-======================================== */
-
-const teachers = {
-  Arabic: "Mr. Mohamed Salah",
-
-  English: "Mr. Ahmed Tarek",
-
-  Chemistry: "Mr. Abd Elwahab",
-};
-
-/* ========================================
-   DATABASE
-======================================== */
-
-const database = [
-  [
-    "Physics",
-    "Chapter 1 — Session 1",
-    "Video",
-    "Physics teacher",
-    "—",
-    "High",
-    "Not revised",
-    "—",
-  ],
-
-  [
-    "Math",
-    "Chapter 1 — Revision",
-    "Revision",
-    "Math teacher",
-    "—",
-    "High",
-    "Not revised",
-    "—",
-  ],
-
-  [
-    "Chemistry",
-    "Your notes",
-    "Important notes",
-    teachers.Chemistry,
-    "—",
-    "Medium",
-    "Not started",
-    "—",
-  ],
-
-  [
-    "English",
-    "Your worksheets",
-    "Homework",
-    teachers.English,
-    "—",
-    "Medium",
-    "Not started",
-    "—",
-  ],
-
-  [
-    "Arabic",
-    "Your lesson notes",
-    "Important notes",
-    teachers.Arabic,
-    "—",
-    "Medium",
-    "Not started",
-    "—",
-  ],
-];
-
-/* ========================================
-   WEEKLY PLAN
-======================================== */
-
-const planData = {
-  Saturday: ["Physics Part 1"],
-
-  Sunday: ["Math Part 1", "English Part 1"],
-
-  Monday: ["Chemistry — 4h", "Arabic Part 1"],
-
-  Tuesday: ["Math Part 2", "Physics Part 2"],
-
-  Wednesday: ["English Part 2"],
-
-  Thursday: ["Arabic Part 2"],
-
-  Friday: ["Revision / Catch-up"],
-};
-
-/* ========================================
-   TODAY
-======================================== */
-
-const today = [
-  ["09:00", "Physics", "Physics Part 1", "Planned"],
-
-  ["12:00", "Math", "Math Part 1", "Planned"],
-
-  ["16:00", "English", "English Part 1", "Planned"],
-
-  ["20:00", "Questions", "Daily questions — all subjects", "Daily"],
-];
+const legacySavedLessons = savedLessons.slice();
 
 /* ========================================
    STORAGE
 ======================================== */
 
-let completed = JSON.parse(localStorage.getItem("studyos_completed") || "[]");
+let completed = new Set();
+let completionRecords = [];
+let currentUser = null;
+let supabaseClient = null;
+let databaseRecords = [];
+let studyTasks = [];
+let weeklyPlanRows = [];
+let lessonRows = [];
+let lessonIdsByKey = new Map();
+let hiddenLessonIds = new Set();
+let backendErrorMessage = "";
+let authMode = "signin";
 
 let currentVideoUrl = "";
 
@@ -411,6 +311,19 @@ let currentVideoUrl = "";
 const $ = (selector) => document.querySelector(selector);
 
 const $$ = (selector) => document.querySelectorAll(selector);
+
+const SUPABASE_URL = "https://wskrspqpwbidccbnpfmm.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY =
+  "sb_publishable_1e0H0ux_jFoLE5tqONMmuw_QySBhIg7";
+const WEEKDAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
 
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
@@ -436,6 +349,664 @@ function toast(message = "Saved") {
   setTimeout(() => {
     element.classList.remove("show");
   }, 1800);
+}
+
+function lessonArrayKey(lesson) {
+  return JSON.stringify([
+    lesson[0] || "",
+    lesson[1] || "",
+    lesson[2] || "",
+    lesson[3] || "",
+    lesson[4] || "",
+  ]);
+}
+
+function lessonRowKey(lesson) {
+  return lessonArrayKey([
+    lesson.subject,
+    lesson.title,
+    lesson.lesson_type,
+    lesson.teacher,
+    lesson.video_url,
+  ]);
+}
+
+function lessonArrayFromRow(lesson) {
+  return [
+    lesson.subject,
+    lesson.title,
+    lesson.lesson_type,
+    lesson.teacher || "",
+    lesson.video_url || "",
+  ];
+}
+
+function lessonId(lesson) {
+  return lessonIdsByKey.get(lessonArrayKey(lesson)) || null;
+}
+
+function isLessonHidden(lesson) {
+  const id = lessonId(lesson);
+  const isBuiltIn = builtInLessons.some(
+    (builtInLesson) => lessonArrayKey(builtInLesson) === lessonArrayKey(lesson),
+  );
+  return (
+    (id && hiddenLessonIds.has(id)) ||
+    (isBuiltIn && deletedBuiltInLessons.includes(lessonArrayKey(lesson)))
+  );
+}
+
+function visibleLessons() {
+  return lessons.filter((lesson) => !isLessonHidden(lesson));
+}
+
+function setBackendNotice(message = "", kind = "info") {
+  backendErrorMessage = kind === "error" ? message : "";
+  const notice = $("#backendNotice");
+  notice.textContent = message;
+  notice.className = `backend-notice ${kind}`;
+  notice.hidden = !message;
+}
+
+function friendlyBackendError(error) {
+  const message = String(error?.message || "");
+  if (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    /does not exist|schema cache/i.test(message)
+  ) {
+    return "StudyOS tables are not set up yet. Run supabase/schema.sql and supabase/seed_lessons.sql in the Supabase SQL Editor.";
+  }
+  if (/Failed to fetch|NetworkError|fetch/i.test(message)) {
+    return "Supabase could not be reached. Check your connection and the Supabase project URL.";
+  }
+  return message || "The request could not be completed. Please try again.";
+}
+
+function reportBackendError(action, error) {
+  console.error(`${action}:`, error);
+  const message = friendlyBackendError(error);
+  setBackendNotice(message, "error");
+  toast(message);
+}
+
+function requireSignedIn() {
+  if (currentUser) return true;
+  setBackendNotice("Sign in to save and sync your personal study data.");
+  openModal("authModal");
+  return false;
+}
+
+function openModal(id) {
+  const modal = $("#" + id);
+  if (!modal) return;
+  modal.classList.add("show");
+  modal.setAttribute("aria-hidden", "false");
+  modal.querySelector("input:not([type=hidden]), select, textarea")?.focus();
+}
+
+function closeModal(id) {
+  const modal = $("#" + id);
+  if (!modal) return;
+  modal.classList.remove("show");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+function updateAuthUI() {
+  const signedIn = Boolean(currentUser);
+  $("#authUserLabel").textContent = signedIn
+    ? currentUser.email || "Signed in"
+    : "Signed out";
+  $("#authButton").hidden = signedIn;
+  $("#signOutButton").hidden = !signedIn;
+  $("#authButton").textContent = "Sign in / Sign up";
+  if (!backendErrorMessage) {
+    setBackendNotice(
+      signedIn
+        ? "Your study data is syncing with Supabase."
+        : "Sign in to sync your progress, tasks, and study records across devices.",
+    );
+  }
+}
+
+function initSupabase() {
+  if (!window.supabase?.createClient) {
+    setBackendNotice(
+      "Supabase could not load. Check your connection; lesson browsing and theme settings are still available.",
+      "error",
+    );
+    return;
+  }
+
+  supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY,
+  );
+
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
+    currentUser = session?.user || null;
+    updateAuthUI();
+    window.setTimeout(() => {
+      handleAuthStateChange().catch((error) =>
+        reportBackendError("Loading account data", error),
+      );
+    }, 0);
+  });
+
+  loadCurrentUser().catch((error) => reportBackendError("Checking sign-in", error));
+}
+
+let loadedUserId = null;
+
+async function loadCurrentUser() {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) throw error;
+  currentUser = data.session?.user || null;
+  updateAuthUI();
+  await handleAuthStateChange();
+}
+
+async function handleAuthStateChange() {
+  updateAuthUI();
+  const nextUserId = currentUser?.id || null;
+  if (nextUserId === loadedUserId) return;
+  loadedUserId = nextUserId;
+
+  if (!currentUser) {
+    completed = new Set();
+    completionRecords = [];
+    databaseRecords = [];
+    studyTasks = [];
+    weeklyPlanRows = [];
+    lessonRows = [];
+    lessonIdsByKey = new Map();
+    hiddenLessonIds = new Set();
+    savedLessons = legacySavedLessons.slice();
+    lessons.splice(0, lessons.length, ...builtInLessons, ...savedLessons);
+    renderSubjects();
+    renderLessons();
+    renderDatabase();
+    renderToday();
+    renderCalendar();
+    updatePlanStats();
+    return;
+  }
+
+  try {
+    await migrateLegacyLessons();
+    await loadLessonCatalog();
+    await migrateLegacyHiddenLessons();
+    await loadHiddenLessons();
+    await migrateLegacyCompletions();
+    await loadCompletedLessons();
+    await loadStudyRecords();
+    await loadTasks();
+    await loadWeeklyPlan();
+    localStorage.removeItem("studyos_lessons");
+    localStorage.removeItem("studyos_completed");
+    localStorage.removeItem("studyos_deleted_builtin_lessons");
+    deletedBuiltInLessons = [];
+    legacySavedLessons.splice(0);
+    legacyCompletedTitles = [];
+    renderSubjects();
+    renderLessons();
+    renderDatabase();
+    renderToday();
+    renderCalendar();
+    updatePlanStats();
+    setBackendNotice(`Signed in as ${currentUser.email}. Your study data is synced.`);
+  } catch (error) {
+    loadedUserId = null;
+    throw error;
+  }
+}
+
+async function migrateLegacyLessons() {
+  for (const lesson of legacySavedLessons) {
+    const { data: existing, error: lookupError } = await supabaseClient
+      .from("lessons")
+      .select("id")
+      .eq("owner_user_id", currentUser.id)
+      .eq("subject", lesson[0])
+      .eq("title", lesson[1])
+      .eq("video_url", lesson[4] || "")
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+    if (existing) continue;
+
+    const { error } = await supabaseClient.from("lessons").insert({
+      owner_user_id: currentUser.id,
+      subject: lesson[0],
+      chapter: lesson[1].match(/^Chapter\s+\d+/)?.[0] || "",
+      title: lesson[1],
+      lesson_type: lesson[2],
+      teacher: lesson[3] || "",
+      video_url: lesson[4] || "",
+    });
+    if (error) throw error;
+  }
+}
+
+async function loadLessonCatalog() {
+  const { data, error } = await supabaseClient
+    .from("lessons")
+    .select("id, owner_user_id, subject, chapter, title, lesson_type, teacher, video_url, duration");
+  if (error) throw error;
+
+  lessonRows = data || [];
+  lessonIdsByKey = new Map(
+    lessonRows.map((row) => [lessonRowKey(row), row.id]),
+  );
+  savedLessons = lessonRows
+    .filter((row) => row.owner_user_id === currentUser.id)
+    .map(lessonArrayFromRow);
+  lessons.splice(0, lessons.length, ...builtInLessons, ...savedLessons);
+}
+
+async function migrateLegacyHiddenLessons() {
+  for (const key of deletedBuiltInLessons) {
+    const lesson = lessonRows.find((row) => lessonRowKey(row) === key);
+    if (!lesson) continue;
+    const { data: existing, error: lookupError } = await supabaseClient
+      .from("user_hidden_lessons")
+      .select("lesson_id")
+      .eq("user_id", currentUser.id)
+      .eq("lesson_id", lesson.id)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+    if (existing) continue;
+    const { error } = await supabaseClient.from("user_hidden_lessons").insert({
+      user_id: currentUser.id,
+      lesson_id: lesson.id,
+    });
+    if (error) throw error;
+  }
+}
+
+async function loadHiddenLessons() {
+  const { data, error } = await supabaseClient
+    .from("user_hidden_lessons")
+    .select("lesson_id")
+    .eq("user_id", currentUser.id);
+  if (error) throw error;
+  hiddenLessonIds = new Set((data || []).map((row) => row.lesson_id));
+}
+
+async function migrateLegacyCompletions() {
+  const idsToComplete = new Set();
+  for (const lesson of lessons) {
+    if (
+      legacyCompletedTitles.includes(lesson[1]) &&
+      lesson[2] !== "Course Library" &&
+      lessonId(lesson)
+    ) {
+      idsToComplete.add(lessonId(lesson));
+    }
+  }
+
+  for (const id of idsToComplete) {
+    const { data: existing, error: lookupError } = await supabaseClient
+      .from("completed_lessons")
+      .select("id")
+      .eq("user_id", currentUser.id)
+      .eq("lesson_id", id)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+    if (existing) continue;
+    const { error } = await supabaseClient.from("completed_lessons").insert({
+      user_id: currentUser.id,
+      lesson_id: id,
+    });
+    if (error) throw error;
+  }
+}
+
+async function loadCompletedLessons() {
+  const { data, error } = await supabaseClient
+    .from("completed_lessons")
+    .select("id, lesson_id, completed_at")
+    .eq("user_id", currentUser.id);
+  if (error) throw error;
+  completionRecords = data || [];
+  completed = new Set(completionRecords.map((row) => row.lesson_id));
+  renderCurrentStreak();
+}
+
+async function loadStudyRecords() {
+  const { data, error } = await supabaseClient
+    .from("study_records")
+    .select("*")
+    .eq("user_id", currentUser.id)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  databaseRecords = data || [];
+}
+
+async function loadTasks() {
+  const { data, error } = await supabaseClient
+    .from("study_tasks")
+    .select("*")
+    .eq("user_id", currentUser.id)
+    .order("scheduled_date", { ascending: true })
+    .order("scheduled_time", { ascending: true });
+  if (error) throw error;
+  studyTasks = data || [];
+}
+
+async function loadWeeklyPlan() {
+  let { data, error } = await supabaseClient
+    .from("weekly_plan")
+    .select("*")
+    .eq("user_id", currentUser.id);
+  if (error) throw error;
+
+  if (!data?.length) {
+    const { data: templates, error: templateError } = await supabaseClient
+      .from("weekly_plan_templates")
+      .select("day_of_week, subject, task, duration");
+    if (templateError) throw templateError;
+    if (templates?.length) {
+      const { error: insertError } = await supabaseClient
+        .from("weekly_plan")
+        .insert(
+          templates.map((row) => ({ ...row, user_id: currentUser.id })),
+        );
+      if (insertError && insertError.code !== "23505") throw insertError;
+      ({ data, error } = await supabaseClient
+        .from("weekly_plan")
+        .select("*")
+        .eq("user_id", currentUser.id));
+      if (error) throw error;
+    }
+  }
+  weeklyPlanRows = data || [];
+}
+
+function authErrorMessage(error) {
+  const message = String(error?.message || "");
+  if (/invalid login credentials/i.test(message)) {
+    return "Email or password is incorrect.";
+  }
+  if (/already registered/i.test(message)) {
+    return "This email already has an account. Sign in instead.";
+  }
+  return message || "Authentication failed. Please try again.";
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const signingIn = mode === "signin";
+  $("#authDialogTitle").textContent = signingIn ? "Sign in" : "Create account";
+  $("#authDialogDescription").textContent = signingIn
+    ? "Sign in to sync your study data across devices."
+    : "Create an account to keep your personal study data private and synced.";
+  $("#authSubmitButton").textContent = signingIn ? "Sign in" : "Sign up";
+  $("#authModeToggle").textContent = signingIn
+    ? "Create account"
+    : "I already have an account";
+  $("#authForm").elements.password.autocomplete = signingIn
+    ? "current-password"
+    : "new-password";
+  $("#authFormMessage").textContent = "";
+}
+
+function localDateString(date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+}
+
+function getMonday(date) {
+  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayFromMonday = (monday.getDay() + 6) % 7;
+  monday.setDate(monday.getDate() - dayFromMonday);
+  return monday;
+}
+
+function safeHttpUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function recordPayload(form) {
+  const fields = new FormData(form);
+  const numberOrNull = (name) => {
+    const value = String(fields.get(name) || "").trim();
+    return value ? Number(value) : null;
+  };
+  return {
+    subject: String(fields.get("subject") || "").trim(),
+    topic: String(fields.get("topic") || "").trim(),
+    record_type: String(fields.get("record_type") || "").trim(),
+    teacher: String(fields.get("teacher") || "").trim(),
+    duration: numberOrNull("duration"),
+    content: String(fields.get("content") || "").trim(),
+    score: numberOrNull("score"),
+    max_score: numberOrNull("max_score"),
+    book_page: String(fields.get("book_page") || "").trim(),
+    resource_url: String(fields.get("resource_url") || "").trim(),
+  };
+}
+
+function openRecordForm(record = null) {
+  if (!requireSignedIn()) return;
+  const form = $("#recordForm");
+  form.reset();
+  form.elements.id.value = record?.id || "";
+  $("#recordDialogTitle").textContent = record ? "Edit record" : "Add a record";
+  $("#recordFormMessage").textContent = "";
+  if (record) {
+    for (const field of [
+      "subject", "topic", "record_type", "teacher", "duration", "content",
+      "score", "max_score", "book_page", "resource_url",
+    ]) {
+      form.elements[field].value = record[field] ?? "";
+    }
+  }
+  openModal("recordModal");
+}
+
+async function saveStudyRecord(event) {
+  event.preventDefault();
+  if (!requireSignedIn()) return;
+  const form = event.currentTarget;
+  const id = form.elements.id.value;
+  const payload = recordPayload(form);
+  const submitButton = form.querySelector('[type="submit"]');
+  submitButton.disabled = true;
+  $("#recordFormMessage").textContent = "Saving…";
+
+  try {
+    let savedRecord;
+    if (id) {
+      const { data, error } = await supabaseClient
+        .from("study_records")
+        .update(payload)
+        .eq("id", id)
+        .eq("user_id", currentUser.id)
+        .select()
+        .single();
+      if (error) throw error;
+      savedRecord = data;
+      databaseRecords = databaseRecords.map((record) =>
+        record.id === id ? savedRecord : record,
+      );
+    } else {
+      const { data, error } = await supabaseClient
+        .from("study_records")
+        .insert({ ...payload, user_id: currentUser.id })
+        .select()
+        .single();
+      if (error) throw error;
+      savedRecord = data;
+      databaseRecords.unshift(savedRecord);
+    }
+    closeModal("recordModal");
+    renderDatabase();
+    toast(id ? "Record updated" : "Record saved");
+  } catch (error) {
+    $("#recordFormMessage").textContent = friendlyBackendError(error);
+    reportBackendError("Saving study record", error);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function deleteStudyRecord(id) {
+  if (!requireSignedIn()) return;
+  const recordIndex = databaseRecords.findIndex((record) => record.id === id);
+  if (recordIndex < 0) return;
+  const record = databaseRecords[recordIndex];
+  if (!confirm(`Delete the ${record.record_type} record “${record.topic}”?`)) return;
+
+  const userId = currentUser.id;
+  databaseRecords.splice(recordIndex, 1);
+  renderDatabase();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("study_records")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("This record was not found or is no longer available.");
+    toast("Record deleted");
+  } catch (error) {
+    if (currentUser?.id === userId) {
+      databaseRecords.splice(recordIndex, 0, record);
+      renderDatabase();
+    }
+    reportBackendError("Deleting study record", error);
+  }
+}
+
+function openTaskForm() {
+  if (!requireSignedIn()) return;
+  const form = $("#taskForm");
+  form.reset();
+  form.elements.scheduled_date.value = localDateString(new Date());
+  form.elements.status.value = "Planned";
+  $("#taskFormMessage").textContent = "";
+  openModal("taskModal");
+}
+
+async function addTask(event) {
+  event.preventDefault();
+  if (!requireSignedIn()) return;
+  const form = event.currentTarget;
+  const fields = new FormData(form);
+  const payload = {
+    user_id: currentUser.id,
+    title: String(fields.get("title") || "").trim(),
+    subject: String(fields.get("subject") || "").trim(),
+    scheduled_date: String(fields.get("scheduled_date") || ""),
+    scheduled_time: String(fields.get("scheduled_time") || "") || null,
+    status: String(fields.get("status") || "Planned"),
+  };
+  const submitButton = form.querySelector('[type="submit"]');
+  submitButton.disabled = true;
+  $("#taskFormMessage").textContent = "Saving…";
+  try {
+    const { data, error } = await supabaseClient
+      .from("study_tasks")
+      .insert(payload)
+      .select()
+      .single();
+    if (error) throw error;
+    studyTasks.push(data);
+    studyTasks.sort((a, b) =>
+      `${a.scheduled_date}${a.scheduled_time || ""}`.localeCompare(
+        `${b.scheduled_date}${b.scheduled_time || ""}`,
+      ),
+    );
+    closeModal("taskModal");
+    renderToday();
+    renderCalendar();
+    updatePlanStats();
+    toast("Task saved");
+  } catch (error) {
+    $("#taskFormMessage").textContent = friendlyBackendError(error);
+    reportBackendError("Saving task", error);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function updateTask(id, changes) {
+  if (!requireSignedIn()) {
+    renderToday();
+    renderCalendar();
+    return;
+  }
+  const previous = studyTasks.find((task) => task.id === id);
+  if (!previous) return;
+  const previousStatus = previous.status;
+  Object.assign(previous, changes);
+  renderToday();
+  renderCalendar();
+  updatePlanStats();
+  try {
+    const { data, error } = await supabaseClient
+      .from("study_tasks")
+      .update(changes)
+      .eq("id", id)
+      .eq("user_id", currentUser.id)
+      .select()
+      .single();
+    if (error) throw error;
+    Object.assign(previous, data);
+    renderToday();
+    renderCalendar();
+    updatePlanStats();
+  } catch (error) {
+    previous.status = previousStatus;
+    renderToday();
+    renderCalendar();
+    updatePlanStats();
+    reportBackendError("Updating task", error);
+  }
+}
+
+async function deleteTask(id) {
+  if (!requireSignedIn()) return;
+  const taskIndex = studyTasks.findIndex((task) => task.id === id);
+  if (taskIndex < 0) return;
+  const task = studyTasks[taskIndex];
+  if (!confirm(`Delete the task “${task.title}”?`)) return;
+
+  const userId = currentUser.id;
+  studyTasks.splice(taskIndex, 1);
+  renderToday();
+  renderCalendar();
+  updatePlanStats();
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("study_tasks")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("This task was not found or is no longer available.");
+    toast("Task deleted");
+  } catch (error) {
+    if (currentUser?.id === userId) {
+      studyTasks.splice(taskIndex, 0, task);
+      renderToday();
+      renderCalendar();
+      updatePlanStats();
+    }
+    reportBackendError("Deleting task", error);
+  }
 }
 
 /* ========================================
@@ -482,19 +1053,20 @@ function toggleTheme() {
 ======================================== */
 
 function subjectProgress(subject) {
-  const subjectLessons = lessons.filter(
+  const subjectLessons = visibleLessons().filter(
     (lesson) => lesson[0] === subject && lesson[2] !== "Course Library",
   );
 
-  if (!subjectLessons.length) {
+  const trackableLessons = subjectLessons.filter((lesson) => lessonId(lesson));
+  if (!trackableLessons.length) {
     return 0;
   }
 
-  const completedLessons = subjectLessons.filter((lesson) =>
-    completed.includes(lesson[1]),
+  const completedLessons = trackableLessons.filter((lesson) =>
+    completed.has(lessonId(lesson)),
   );
 
-  return Math.round((completedLessons.length / subjectLessons.length) * 100);
+  return Math.round((completedLessons.length / trackableLessons.length) * 100);
 }
 
 /* ========================================
@@ -616,12 +1188,12 @@ function renderProgressCards() {
 ======================================== */
 
 function updateProgress() {
-  const videoLessons = lessons.filter(
-    (lesson) => lesson[2] !== "Course Library",
+  const videoLessons = visibleLessons().filter(
+    (lesson) => lesson[2] !== "Course Library" && lessonId(lesson),
   );
 
   const completedLessons = videoLessons.filter((lesson) =>
-    completed.includes(lesson[1]),
+    completed.has(lessonId(lesson)),
   );
 
   const total = videoLessons.length;
@@ -635,6 +1207,31 @@ function updateProgress() {
   $("#overallBar").style.width = percentage + "%";
 
   $("#completedCount").textContent = done;
+  $("#yearProgressBar").style.width = percentage + "%";
+  $("#yearProgressText").textContent = total
+    ? `${percentage}% of listed lessons completed`
+    : "Sign in and load the lesson seed to track progress";
+  renderCurrentStreak();
+}
+
+function renderCurrentStreak() {
+  const completedDays = new Set(
+    completionRecords.map((record) =>
+      localDateString(new Date(record.completed_at)),
+    ),
+  );
+  const today = new Date();
+  let cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if (!completedDays.has(localDateString(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  let streak = 0;
+  while (completedDays.has(localDateString(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  $("#dayStreakValue").textContent = streak;
+  $("#progressStreakValue").textContent = `${streak} day${streak === 1 ? "" : "s"}`;
 }
 
 /* ========================================
@@ -642,53 +1239,44 @@ function updateProgress() {
 ======================================== */
 
 function renderToday() {
-  $("#todayTable").innerHTML = today
-    .map((row) => {
-      return `
+  const today = localDateString(new Date());
+  const todaysTasks = studyTasks
+    .filter((task) => task.scheduled_date === today)
+    .sort((a, b) =>
+      String(a.scheduled_time || "").localeCompare(String(b.scheduled_time || "")),
+    );
 
-                <tr>
+  const taskRows = todaysTasks.length
+    ? todaysTasks.map((task) => `
+        <tr>
+          <td><input class="check task-check" type="checkbox" data-task-id="${task.id}" ${task.status === "Completed" ? "checked" : ""} aria-label="Mark ${escapeHTML(task.title)} complete"></td>
+          <td>${escapeHTML((task.scheduled_time || "").slice(0, 5) || "—")}</td>
+          <td><b>${escapeHTML(task.subject)}</b></td>
+          <td>${escapeHTML(task.title)}</td>
+          <td><span style="color:var(--orange)">● ${escapeHTML(task.status)}</span></td>
+        </tr>
+      `).join("")
+    : `<tr><td colspan="5" class="empty-cell">No tasks scheduled for today.</td></tr>`;
 
-                    <td>
+  $("#todayTable").innerHTML = `${taskRows}
+    <tr>
+      <td>—</td><td>Daily</td><td><b>Questions</b></td>
+      <td>Daily questions — all subjects</td>
+      <td><span style="color:var(--orange)">● Daily</span></td>
+    </tr>`;
 
-                        <input
-                            class="check"
-                            type="checkbox"
-                            onchange="
-                                toast(
-                                    this.checked
-                                    ? 'Task completed ✓'
-                                    : 'Task reopened'
-                                )
-                            "
-                        >
+  $$(".task-check").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      updateTask(checkbox.dataset.taskId, {
+        status: checkbox.checked ? "Completed" : "Planned",
+      });
+    });
+  });
 
-                    </td>
-
-                    <td>
-                        ${row[0]}
-                    </td>
-
-                    <td>
-                        <b>
-                            ${row[1]}
-                        </b>
-                    </td>
-
-                    <td>
-                        ${row[2]}
-                    </td>
-
-                    <td>
-                        <span style="color:var(--orange)">
-                            ● ${row[3]}
-                        </span>
-                    </td>
-
-                </tr>
-
-            `;
-    })
-    .join("");
+  $("#plannedTodayValue").textContent = `${todaysTasks.length} task${todaysTasks.length === 1 ? "" : "s"}`;
+  $("#remainingTasksValue").textContent = todaysTasks.filter(
+    (task) => task.status !== "Completed",
+  ).length;
 }
 
 /* ========================================
@@ -700,7 +1288,7 @@ function renderLessons() {
 
   const filter = $("#subjectFilter").value;
 
-  const filtered = lessons.filter((lesson) => {
+  const filtered = visibleLessons().filter((lesson) => {
     const matchesSubject = filter === "All subjects" || lesson[0] === filter;
 
     const matchesSearch = lesson.join(" ").toLowerCase().includes(search);
@@ -734,7 +1322,8 @@ function renderLessons() {
 
       const isPortal = type === "Course Library";
 
-      const done = completed.includes(title);
+      const currentLessonId = lessonId(lesson);
+      const done = currentLessonId ? completed.has(currentLessonId) : false;
 
       return `
 
@@ -826,7 +1415,7 @@ function renderLessons() {
                                         <input
                                             class="check lesson-check"
                                             type="checkbox"
-                                            data-title="${title}"
+                                            data-lesson-id="${currentLessonId || ""}"
                                             ${done ? "checked" : ""}
                                         >
 
@@ -888,7 +1477,7 @@ function renderLessons() {
 
   $$(".lesson-check").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
-      toggleLesson(checkbox.dataset.title, checkbox.checked);
+      toggleLesson(checkbox.dataset.lessonId, checkbox.checked);
     });
   });
 
@@ -905,26 +1494,7 @@ function renderLessons() {
       if (!isSavedLesson && !isBuiltInVideo) return;
 
       if (!confirm(`Delete “${lesson[1]}”?`)) return;
-
-      lessons.splice(lessonIndex, 1);
-      if (isSavedLesson) {
-        savedLessons = savedLessons.filter((savedLesson) => savedLesson !== lesson);
-        localStorage.setItem("studyos_lessons", JSON.stringify(savedLessons));
-      } else {
-        deletedBuiltInLessons.push(JSON.stringify(lesson));
-        localStorage.setItem(
-          "studyos_deleted_builtin_lessons",
-          JSON.stringify(deletedBuiltInLessons),
-        );
-      }
-      if (!lessons.some((item) => item[1] === lesson[1])) {
-        completed = completed.filter((title) => title !== lesson[1]);
-        localStorage.setItem("studyos_completed", JSON.stringify(completed));
-      }
-
-      renderLessons();
-      renderSubjects();
-      toast("Lesson deleted");
+      deleteLesson(lesson, isSavedLesson);
     });
   });
 
@@ -935,22 +1505,94 @@ function renderLessons() {
    LESSON COMPLETION
 ======================================== */
 
-function toggleLesson(title, isCompleted) {
-  if (isCompleted && !completed.includes(title)) {
-    completed.push(title);
+async function toggleLesson(id, isCompleted) {
+  if (!requireSignedIn()) {
+    renderLessons();
+    return;
+  }
+  if (!id) {
+    setBackendNotice("Run the lesson seed SQL before saving lesson progress.", "error");
+    renderLessons();
+    return;
   }
 
-  if (!isCompleted) {
-    completed = completed.filter((item) => item !== title);
-  }
-
-  localStorage.setItem("studyos_completed", JSON.stringify(completed));
-
+  const wasCompleted = completed.has(id);
+  if (isCompleted) completed.add(id);
+  else completed.delete(id);
   renderLessons();
-
   renderSubjects();
 
-  toast(isCompleted ? "Lesson completed ✓" : "Lesson reopened");
+  try {
+    if (isCompleted) {
+      const { data, error } = await supabaseClient
+        .from("completed_lessons")
+        .insert({ user_id: currentUser.id, lesson_id: id })
+        .select("id, lesson_id, completed_at")
+        .single();
+      if (error && error.code !== "23505") throw error;
+      if (data) completionRecords.push(data);
+    } else {
+      const { error } = await supabaseClient
+        .from("completed_lessons")
+        .delete()
+        .eq("user_id", currentUser.id)
+        .eq("lesson_id", id);
+      if (error) throw error;
+      completionRecords = completionRecords.filter(
+        (record) => record.lesson_id !== id,
+      );
+    }
+    renderCurrentStreak();
+    toast(isCompleted ? "Lesson completed ✓" : "Lesson reopened");
+  } catch (error) {
+    if (wasCompleted) completed.add(id);
+    else completed.delete(id);
+    renderLessons();
+    renderSubjects();
+    reportBackendError("Saving lesson progress", error);
+  }
+}
+
+async function deleteLesson(lesson, isSavedLesson) {
+  if (!requireSignedIn()) return;
+  const id = lessonId(lesson);
+  if (!id) {
+    setBackendNotice("Run the lesson seed SQL before deleting lessons.", "error");
+    return;
+  }
+
+  try {
+    if (isSavedLesson) {
+      const { error } = await supabaseClient
+        .from("lessons")
+        .delete()
+        .eq("id", id)
+        .eq("owner_user_id", currentUser.id);
+      if (error) throw error;
+      savedLessons = savedLessons.filter(
+        (savedLesson) => lessonArrayKey(savedLesson) !== lessonArrayKey(lesson),
+      );
+      lessons.splice(0, lessons.length, ...builtInLessons, ...savedLessons);
+      lessonIdsByKey.delete(lessonArrayKey(lesson));
+      completed.delete(id);
+      completionRecords = completionRecords.filter(
+        (record) => record.lesson_id !== id,
+      );
+    } else {
+      const { error } = await supabaseClient.from("user_hidden_lessons").insert({
+        user_id: currentUser.id,
+        lesson_id: id,
+      });
+      if (error && error.code !== "23505") throw error;
+      hiddenLessonIds.add(id);
+    }
+    renderLessons();
+    renderSubjects();
+    renderCurrentStreak();
+    toast("Lesson removed from your library");
+  } catch (error) {
+    reportBackendError("Deleting lesson", error);
+  }
 }
 
 /* ========================================
@@ -1097,55 +1739,44 @@ function closeVideo() {
 function renderDatabase() {
   const search = $("#dbSearch").value.toLowerCase().trim();
 
-  const filtered = database.filter((row) =>
-    row.join(" ").toLowerCase().includes(search),
+  const filtered = databaseRecords.filter((record) =>
+    Object.values(record).join(" ").toLowerCase().includes(search),
   );
 
-  $("#dbTable").innerHTML = filtered
-    .map((row) => {
-      return `
+  $("#dbTable").innerHTML = filtered.length
+    ? filtered.map((record) => {
+        const resourceUrl = safeHttpUrl(record.resource_url);
+        const score = record.score == null
+          ? "—"
+          : `${record.score}${record.max_score == null ? "" : ` / ${record.max_score}`}`;
+        return `
+          <tr>
+            <td><b>${escapeHTML(record.subject)}</b></td>
+            <td>${escapeHTML(record.topic)}</td>
+            <td>${escapeHTML(record.record_type)}</td>
+            <td>${escapeHTML(record.teacher || "—")}</td>
+            <td>${record.duration == null ? "—" : `${escapeHTML(record.duration)} min`}</td>
+            <td>${escapeHTML(score)}</td>
+            <td class="record-content">${escapeHTML(record.content || "—")}</td>
+            <td>${escapeHTML(record.book_page || "—")}</td>
+            <td>${resourceUrl ? `<a href="${escapeHTML(resourceUrl)}" target="_blank" rel="noopener noreferrer">Open ↗</a>` : "—"}</td>
+            <td class="record-actions">
+              <button class="icon-btn record-edit" type="button" data-record-id="${record.id}" aria-label="Edit record">Edit</button>
+              <button class="icon-btn record-delete" type="button" data-record-id="${record.id}" aria-label="Delete ${escapeHTML(record.record_type)} record: ${escapeHTML(record.topic)}">Delete</button>
+            </td>
+          </tr>`;
+      }).join("")
+    : `<tr><td colspan="10" class="empty-cell">${currentUser ? "No study records yet. Add your first record." : "Sign in to view your private study records."}</td></tr>`;
 
-                <tr>
-
-                    <td>
-                        <b>
-                            ${row[0]}
-                        </b>
-                    </td>
-
-                    <td>
-                        ${row[1]}
-                    </td>
-
-                    <td>
-                        ${row[2]}
-                    </td>
-
-                    <td>
-                        ${row[3]}
-                    </td>
-
-                    <td>
-                        ${row[4]}
-                    </td>
-
-                    <td>
-                        ${row[5]}
-                    </td>
-
-                    <td>
-                        ${row[6]}
-                    </td>
-
-                    <td>
-                        ${row[7]}
-                    </td>
-
-                </tr>
-
-            `;
-    })
-    .join("");
+  $$(".record-edit").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = databaseRecords.find((item) => item.id === button.dataset.recordId);
+      if (record) openRecordForm(record);
+    });
+  });
+  $$(".record-delete").forEach((button) => {
+    button.addEventListener("click", () => deleteStudyRecord(button.dataset.recordId));
+  });
 }
 
 /* ========================================
@@ -1153,48 +1784,64 @@ function renderDatabase() {
 ======================================== */
 
 function renderCalendar() {
-  const days = [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-  ];
+  const weekStart = getMonday(new Date());
+  const activeDay = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+  });
+  $("#calendar").innerHTML = WEEKDAYS.map((day, index) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + index);
+    const dateText = localDateString(date);
+    const planItems = weeklyPlanRows.filter((item) => item.day_of_week === day);
+    const dayTasks = studyTasks.filter((task) => task.scheduled_date === dateText);
+    const planMarkup = planItems.map((item) =>
+      `<div class="task"><b>${escapeHTML(item.subject)}</b> · ${escapeHTML(item.task)}${item.duration ? ` · ${escapeHTML(item.duration)}h` : ""}</div>`,
+    ).join("");
+    const taskMarkup = dayTasks.map((task) => `
+      <div class="task task-entry ${task.status === "Completed" ? "task-done" : ""}">
+        <label><input class="check task-check" type="checkbox" data-task-id="${task.id}" ${task.status === "Completed" ? "checked" : ""} aria-label="Mark ${escapeHTML(task.title)} complete">
+        ${escapeHTML((task.scheduled_time || "").slice(0, 5))} ${escapeHTML(task.subject)} · ${escapeHTML(task.title)}</label>
+        <button class="task-delete" type="button" data-task-id="${task.id}" aria-label="Delete task: ${escapeHTML(task.title)}">Delete</button>
+      </div>`).join("");
+    return `
+      <div class="day ${day === activeDay ? "active" : ""}">
+        <b>${day.slice(0, 3)} <small>${dateText.slice(5)}</small></b>
+        ${planMarkup || ""}
+        ${taskMarkup || ""}
+        <div class="task daily-questions">❓ Daily questions for all subjects</div>
+      </div>`;
+  }).join("");
 
-  const shortDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  $$(".task-check").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      updateTask(checkbox.dataset.taskId, {
+        status: checkbox.checked ? "Completed" : "Planned",
+      });
+    });
+  });
+  $$(".task-delete").forEach((button) => {
+    button.addEventListener("click", () => deleteTask(button.dataset.taskId));
+  });
+}
 
-  $("#calendar").innerHTML = days
-    .map((day, index) => {
-      return `
-
-                    <div
-                        class="day
-                        ${index === 0 ? "active" : ""}">
-
-                        <b>
-                            ${shortDays[index]}
-                        </b>
-
-                        ${planData[day]
-                          .map(
-                            (task) =>
-                              `<div class="task">
-                                            ${task}
-                                        </div>`,
-                          )
-                          .join("")}
-
-                        <div class="task">
-                            ❓ Daily questions
-                        </div>
-
-                    </div>
-
-                `;
-    })
-    .join("");
+function updatePlanStats() {
+  const weekStart = getMonday(new Date());
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  const startText = localDateString(weekStart);
+  const endText = localDateString(weekEnd);
+  const thisWeeksTasks = studyTasks.filter(
+    (task) => task.scheduled_date >= startText && task.scheduled_date <= endText,
+  );
+  const completedCount = thisWeeksTasks.filter(
+    (task) => task.status === "Completed",
+  ).length;
+  const count = thisWeeksTasks.length;
+  $("#weeklyPlanCount").textContent = weeklyPlanRows.length;
+  $("#weeklyTaskDone").textContent = completedCount;
+  $("#weeklyTaskProgress").textContent = count
+    ? `${Math.round((completedCount / count) * 100)}%`
+    : "0%";
 }
 
 /* ========================================
@@ -1316,6 +1963,19 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && $("#lessonModal").classList.contains("show")) {
     closeLessonForm();
   }
+  if (event.key === "Escape") {
+    $$(".app-modal.show").forEach((modal) => closeModal(modal.id));
+  }
+});
+
+$$('[data-close-modal]').forEach((button) => {
+  button.addEventListener("click", () => closeModal(button.dataset.closeModal));
+});
+
+$$(["#authModal", "#taskModal", "#recordModal"].join(", ")).forEach((modal) => {
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) closeModal(modal.id);
+  });
 });
 
 /* EXTERNAL VIDEO FALLBACK */
@@ -1334,12 +1994,66 @@ $("#focusBtn").addEventListener("click", () => {
   toast("Focus mode activated 🎯");
 });
 
+/* AUTHENTICATION */
+
+$("#authButton").addEventListener("click", () => {
+  setAuthMode("signin");
+  openModal("authModal");
+});
+
+$("#authModeToggle").addEventListener("click", () => {
+  setAuthMode(authMode === "signin" ? "signup" : "signin");
+});
+
+$("#authForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = $("#authFormMessage");
+  if (!supabaseClient) {
+    message.textContent = "Supabase client is unavailable. Check your connection and reload.";
+    return;
+  }
+  const fields = new FormData(form);
+  const email = String(fields.get("email") || "").trim();
+  const password = String(fields.get("password") || "");
+  const button = $("#authSubmitButton");
+  button.disabled = true;
+  message.textContent = authMode === "signin" ? "Signing in…" : "Creating account…";
+  try {
+    const result = authMode === "signin"
+      ? await supabaseClient.auth.signInWithPassword({ email, password })
+      : await supabaseClient.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: window.location.href.split("#")[0] },
+        });
+    if (result.error) throw result.error;
+    if (authMode === "signup" && !result.data.session) {
+      message.textContent = "Check your email to confirm the account, then sign in.";
+      return;
+    }
+    closeModal("authModal");
+    form.reset();
+    toast(authMode === "signin" ? "Signed in" : "Account created");
+  } catch (error) {
+    message.textContent = authErrorMessage(error);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#signOutButton").addEventListener("click", async () => {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) reportBackendError("Signing out", error);
+  else toast("Signed out");
+});
+
 /* ADD TASK */
 
 $("#addBtn").addEventListener("click", () => {
   showPage("plan");
-
-  toast("New task mode ready");
+  openTaskForm();
 });
 
 /* ADD LESSON */
@@ -1351,10 +2065,7 @@ function closeLessonForm() {
 }
 
 $("#lessonAdd").addEventListener("click", () => {
-  const modal = $("#lessonModal");
-  modal.classList.add("show");
-  modal.setAttribute("aria-hidden", "false");
-  $("#lessonForm").elements.subject.focus();
+  if (requireSignedIn()) openModal("lessonModal");
 });
 
 $("#lessonClose").addEventListener("click", closeLessonForm);
@@ -1363,44 +2074,70 @@ $("#lessonModal").addEventListener("click", (event) => {
   if (event.target === $("#lessonModal")) closeLessonForm();
 });
 
-$("#lessonForm").addEventListener("submit", (event) => {
+$("#lessonForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const formData = new FormData(event.currentTarget);
+  if (!requireSignedIn()) return;
+  const form = event.currentTarget;
+  const formData = new FormData(form);
   const subject = String(formData.get("subject") || "").trim();
   const title = String(formData.get("title") || "").trim();
   const type = String(formData.get("type") || "Video");
   const teacher = String(formData.get("teacher") || "").trim();
   const url = String(formData.get("url") || "").trim();
+  const durationValue = String(formData.get("duration") || "").trim();
 
   if (!subject || !title) return;
   if (!url) {
-    event.currentTarget.elements.url.focus();
+    form.elements.url.focus();
     toast(type === "Video" ? "Add a video URL" : "Add a portal URL");
     return;
   }
 
-  const lesson = [subject, title, type, teacher, url];
-  savedLessons.push(lesson);
-  lessons.push(lesson);
-  localStorage.setItem("studyos_lessons", JSON.stringify(savedLessons));
-  event.currentTarget.reset();
-  renderLessons();
-  renderSubjects();
-  closeLessonForm();
-  toast("Lesson saved");
+  try {
+    const { data, error } = await supabaseClient
+      .from("lessons")
+      .insert({
+        owner_user_id: currentUser.id,
+        subject,
+        chapter: title.match(/^Chapter\s+\d+/)?.[0] || "",
+        title,
+        lesson_type: type,
+        teacher,
+        video_url: url,
+        duration: durationValue ? Number(durationValue) : null,
+      })
+      .select("id, owner_user_id, subject, chapter, title, lesson_type, teacher, video_url, duration")
+      .single();
+    if (error) throw error;
+    const lesson = lessonArrayFromRow(data);
+    lessonRows.push(data);
+    lessonIdsByKey.set(lessonRowKey(data), data.id);
+    savedLessons.push(lesson);
+    lessons.push(lesson);
+    form.reset();
+    closeLessonForm();
+    renderLessons();
+    renderSubjects();
+    toast("Lesson saved");
+  } catch (error) {
+    reportBackendError("Saving lesson", error);
+  }
 });
 
 /* ADD PLAN */
 
 $("#planAdd").addEventListener("click", () => {
-  toast("Session added — backend coming later");
+  openTaskForm();
 });
 
 /* ADD DATABASE RECORD */
 
 $("#dbAdd").addEventListener("click", () => {
-  toast("Database record form ready");
+  openRecordForm();
 });
+
+$("#recordForm").addEventListener("submit", saveStudyRecord);
+$("#taskForm").addEventListener("submit", addTask);
 
 /* RESET */
 
@@ -1411,29 +2148,36 @@ $("#resetBtn").addEventListener("click", () => {
     return;
   }
 
-  localStorage.removeItem("studyos_completed");
-
-  completed = [];
-
-  renderSubjects();
-
-  renderLessons();
-
-  toast("Progress reset");
+  if (!requireSignedIn()) return;
+  supabaseClient
+    .from("completed_lessons")
+    .delete()
+    .eq("user_id", currentUser.id)
+    .then(({ error }) => {
+      if (error) throw error;
+      completed.clear();
+      completionRecords = [];
+      renderSubjects();
+      renderLessons();
+      toast("Progress reset");
+    })
+    .catch((error) => reportBackendError("Resetting progress", error));
 });
 
 /* ========================================
    INITIALIZE
 ======================================== */
 
-loadTheme();
+function initializeApp() {
+  loadTheme();
+  setAuthMode("signin");
+  renderSubjects();
+  renderToday();
+  renderLessons();
+  renderDatabase();
+  renderCalendar();
+  updatePlanStats();
+  initSupabase();
+}
 
-renderSubjects();
-
-renderToday();
-
-renderLessons();
-
-renderDatabase();
-
-renderCalendar();
+initializeApp();
