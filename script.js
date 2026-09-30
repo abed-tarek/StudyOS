@@ -817,6 +817,19 @@ function renderLessons() {
                                 `
                             }
 
+                            ${
+                              savedLessons.includes(lesson)
+                                ? `
+                                    <button
+                                        class="lesson-delete"
+                                        data-lesson-index="${lessons.indexOf(lesson)}"
+                                        type="button">
+                                        Delete
+                                    </button>
+                                `
+                                : ""
+                            }
+
                         </div>
 
                     </article>
@@ -850,6 +863,30 @@ function renderLessons() {
   $$(".lesson-check").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
       toggleLesson(checkbox.dataset.title, checkbox.checked);
+    });
+  });
+
+  /* DELETE USER-CREATED LESSONS */
+
+  $$(".lesson-delete").forEach((button) => {
+    button.addEventListener("click", () => {
+      const lessonIndex = Number(button.dataset.lessonIndex);
+      const lesson = lessons[lessonIndex];
+      if (!lesson || !savedLessons.includes(lesson)) return;
+
+      if (!confirm(`Delete “${lesson[1]}”?`)) return;
+
+      lessons.splice(lessonIndex, 1);
+      savedLessons = savedLessons.filter((savedLesson) => savedLesson !== lesson);
+      if (!lessons.some((item) => item[1] === lesson[1])) {
+        completed = completed.filter((title) => title !== lesson[1]);
+        localStorage.setItem("studyos_completed", JSON.stringify(completed));
+      }
+      localStorage.setItem("studyos_lessons", JSON.stringify(savedLessons));
+
+      renderLessons();
+      renderSubjects();
+      toast("Lesson deleted");
     });
   });
 

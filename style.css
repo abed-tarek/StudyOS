@@ -962,6 +962,25 @@ select {
   margin: 7px 0;
 }
 
+.lesson-delete {
+  margin-top: 14px;
+  padding: 7px 10px;
+  border: 1px solid rgba(239, 98, 98, 0.35);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--red);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.lesson-delete:hover {
+  background: var(--red);
+  color: white;
+}
+
 .lesson small {
   color: var(--muted);
 }
