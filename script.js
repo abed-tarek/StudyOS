@@ -257,7 +257,27 @@ const lessons = [
 
 // User-created lessons are stored separately from the built-in lesson list.
 let savedLessons = [];
+let deletedBuiltInLessons = [];
 try {
+  const storedDeletedLessons = JSON.parse(
+    localStorage.getItem("studyos_deleted_builtin_lessons") || "[]",
+  );
+  if (Array.isArray(storedDeletedLessons)) {
+    deletedBuiltInLessons = storedDeletedLessons.filter(
+      (lessonKey) => typeof lessonKey === "string",
+    );
+    const deletedLessonKeys = new Set(deletedBuiltInLessons);
+    for (let index = lessons.length - 1; index >= 0; index -= 1) {
+      const lesson = lessons[index];
+      if (
+        lesson[2] === "Video" &&
+        deletedLessonKeys.has(JSON.stringify(lesson))
+      ) {
+        lessons.splice(index, 1);
+      }
+    }
+  }
+
   const storedLessons = JSON.parse(localStorage.getItem("studyos_lessons") || "[]");
   if (Array.isArray(storedLessons)) {
     savedLessons = storedLessons.filter(
@@ -818,13 +838,13 @@ function renderLessons() {
                             }
 
                             ${
-                              savedLessons.includes(lesson)
+                              savedLessons.includes(lesson) || lesson[2] === "Video"
                                 ? `
                                     <button
                                         class="lesson-delete"
                                         data-lesson-index="${lessons.indexOf(lesson)}"
                                         type="button">
-                                        Delete
+                                        Delete lesson
                                     </button>
                                 `
                                 : ""
@@ -866,23 +886,35 @@ function renderLessons() {
     });
   });
 
-  /* DELETE USER-CREATED LESSONS */
+  /* DELETE USER-CREATED LESSONS AND BUILT-IN VIDEOS */
 
   $$(".lesson-delete").forEach((button) => {
     button.addEventListener("click", () => {
       const lessonIndex = Number(button.dataset.lessonIndex);
       const lesson = lessons[lessonIndex];
-      if (!lesson || !savedLessons.includes(lesson)) return;
+      if (!lesson) return;
+
+      const isSavedLesson = savedLessons.includes(lesson);
+      const isBuiltInVideo = !isSavedLesson && lesson[2] === "Video";
+      if (!isSavedLesson && !isBuiltInVideo) return;
 
       if (!confirm(`Delete “${lesson[1]}”?`)) return;
 
       lessons.splice(lessonIndex, 1);
-      savedLessons = savedLessons.filter((savedLesson) => savedLesson !== lesson);
+      if (isSavedLesson) {
+        savedLessons = savedLessons.filter((savedLesson) => savedLesson !== lesson);
+        localStorage.setItem("studyos_lessons", JSON.stringify(savedLessons));
+      } else {
+        deletedBuiltInLessons.push(JSON.stringify(lesson));
+        localStorage.setItem(
+          "studyos_deleted_builtin_lessons",
+          JSON.stringify(deletedBuiltInLessons),
+        );
+      }
       if (!lessons.some((item) => item[1] === lesson[1])) {
         completed = completed.filter((title) => title !== lesson[1]);
         localStorage.setItem("studyos_completed", JSON.stringify(completed));
       }
-      localStorage.setItem("studyos_lessons", JSON.stringify(savedLessons));
 
       renderLessons();
       renderSubjects();
