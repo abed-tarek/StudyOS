@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>StudyOS — 3rd Secondary</title>
+
+    <link rel="stylesheet" href="style.css" />
+    <script
+      type="text/javascript"
+      src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=86YdiPMqEUffgQeyxJmUa8LwDPw46iYRn3h0B5rLAag6OeriDqKqZJQQPJQcr282lAsSTmkffJ2CREdJMtPjwj8kBVoG9p37RkSaet7fj0EhwiIkurlqeAaiwNPziZRvmlH8UWkOyvQWKERESP2Snk4MGOO3sWsnLGhIHM_GMDPYcMcETx7Wy4pTwFt2xlSZD6aXuA4Qy1pFzuZkJNWbsu_abZcwUQqqWr4_1U6uy2YtOSum-Bwdsbek145yo5XqLlKm1A7A3v_oO0_W6QUCUxzlDNltSLme8-c-BCY735Z6-mj0q8ET7YMFxnUIa69A"
+      charset="UTF-8"
+    ></script>
+    <script src="script.js" defer></script>
+  </head>
+
+  <body>
+    <div class="app">
+      <div class="layout">
+        <!-- SIDEBAR -->
+        <aside class="sidebar">
+          <div class="brand">
+            <div class="logo">AT</div>
+
+            <div>
+              <strong>Abed Tarek</strong>
+              <small>3rd Secondary HQ</small>
+            </div>
+          </div>
+
+          <nav class="nav">
+            <button class="active" data-page="dashboard">🏠 Dashboard</button>
+
+            <button data-page="lessons">▶️ Lessons</button>
+
+            <button data-page="plan">📅 Study Plan</button>
+
+            <button data-page="progress">📈 Progress</button>
+
+            <button data-page="database">🗃️ Database</button>
+
+            <button data-page="settings">⚙️ Settings</button>
+          </nav>
+
+          <div class="side-bottom">
+            <b>Year Progress</b>
+
+            <p>You're building momentum. Keep today's streak alive.</p>
+
+            <div class="progress-mini">
+              <span></span>
+            </div>
+
+            <small>Keep going 🚀</small>
+          </div>
+        </aside>
+
+        <!-- MAIN -->
+        <main class="main">
+          <!-- TOP BAR -->
+          <header class="top">
+            <div>
+              <div class="eyebrow">Academic Command Center</div>
+
+              <h1 id="pageTitle">Good morning, Abed 👋</h1>
+            </div>
+
+            <div class="actions">
+              <button class="icon-btn" id="themeBtn">☀️</button>
+
+              <button class="icon-btn" id="focusBtn">🎯 Focus</button>
+
+              <button class="primary" id="addBtn">＋ Add Task</button>
+            </div>
+          </header>
+
+          <!-- ================= DASHBOARD ================= -->
+
+          <section id="dashboard" class="content-panel active">
+            <div class="hero">
+              <div class="hero-main">
+                <div class="eyebrow">Today's mission</div>
+
+                <h2>Make progress, not perfection.</h2>
+
+                <p>
+                  Your study hub keeps every lesson, task and result in one
+                  place. Pick a subject, start a lesson, and keep moving
+                  forward.
+                </p>
+
+                <div class="hero-stat">
+                  <div>
+                    <b>2h 15m</b>
+                    <span>planned today</span>
+                  </div>
+
+                  <div>
+                    <b>7</b>
+                    <span>tasks remaining</span>
+                  </div>
+
+                  <div>
+                    <b>12</b>
+                    <span>day streak</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="focus">
+                <h3>Up next</h3>
+
+                <div class="focus-item">
+                  <i class="dot"></i>
+
+                  <div>
+                    <strong> Physics — Chapter 1 </strong>
+
+                    <small> Video lesson </small>
+                  </div>
+                </div>
+
+                <div class="focus-item">
+                  <i class="dot"></i>
+
+                  <div>
+                    <strong> English </strong>
+
+                    <small> Reading practice </small>
+                  </div>
+                </div>
+
+                <div class="focus-item">
+                  <i class="dot"></i>
+
+                  <div>
+                    <strong> Chemistry </strong>
+
+                    <small> Revision </small>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <h2>My subjects</h2>
+
+              <span> Click a subject to open its lessons </span>
+            </div>
+
+            <div class="cards" id="subjectCards"></div>
+
+            <div class="section-head">
+              <h2>Today's plan</h2>
+
+              <span> Weekly schedule </span>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Done</th>
+                    <th>Time</th>
+                    <th>Subject</th>
+                    <th>Session</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody id="todayTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ================= LESSONS ================= -->
+
+          <section id="lessons" class="content-panel">
+            <div class="section-head">
+              <h2>Lesson Library</h2>
+
+              <span> Your lessons & teacher portals </span>
+            </div>
+
+            <div class="lesson-form-panel">
+              <h3>Add a lesson</h3>
+              <form id="lessonForm" class="lesson-form">
+                <label>
+                  Subject
+                  <select name="subject" required>
+                    <option value="Math">Math</option>
+                    <option value="Physics">Physics</option>
+                    <option value="Chemistry">Chemistry</option>
+                    <option value="English">English</option>
+                    <option value="Arabic">Arabic</option>
+                  </select>
+                </label>
+                <label>
+                  Lesson title
+                  <input name="title" type="text" maxlength="120" placeholder="e.g. Chapter 2 — Session 1" required />
+                </label>
+                <label>
+                  Type
+                  <select name="type">
+                    <option>Video</option>
+                    <option>Course Library</option>
+                  </select>
+                </label>
+                <label>
+                  Teacher / portal name
+                  <input name="teacher" type="text" maxlength="80" placeholder="Optional" />
+                </label>
+                <label class="lesson-url-field">
+                  Video or portal URL
+                  <input name="url" type="url" placeholder="https://…" />
+                </label>
+                <button class="primary" type="submit">＋ Save lesson</button>
+              </form>
+            </div>
+
+            <div class="subject-tabs">
+              <button class="subject-tab active" data-subject="All subjects">
+                ✨ All
+              </button>
+
+              <button class="subject-tab" data-subject="Math">🌌 Math</button>
+
+              <button class="subject-tab" data-subject="Physics">
+                ⚡ Physics
+              </button>
+
+              <button class="subject-tab" data-subject="Chemistry">
+                🧪 Chemistry
+              </button>
+
+              <button class="subject-tab" data-subject="English">
+                💎 English
+              </button>
+
+              <button class="subject-tab" data-subject="Arabic">
+                🪶 Arabic
+              </button>
+            </div>
+
+            <div class="toolbar">
+              <input
+                class="search"
+                id="lessonSearch"
+                placeholder="Search lessons, chapters or sessions..."
+              />
+
+              <select class="filter" id="subjectFilter">
+                <option>All subjects</option>
+                <option>Math</option>
+                <option>Physics</option>
+                <option>Chemistry</option>
+                <option>English</option>
+                <option>Arabic</option>
+              </select>
+            </div>
+
+            <div id="subjectHeading"></div>
+
+            <div class="lesson-grid" id="lessonGrid"></div>
+          </section>
+
+          <!-- ================= STUDY PLAN ================= -->
+
+          <section id="plan" class="content-panel">
+            <div class="section-head">
+              <h2>Study Plan</h2>
+
+              <span> Your weekly structure </span>
+            </div>
+
+            <div class="stats">
+              <div class="stat-card">
+                <b>14.5h</b>
+                <p>Planned this week</p>
+              </div>
+
+              <div class="stat-card">
+                <b>9.2h</b>
+                <p>Completed this week</p>
+              </div>
+
+              <div class="stat-card">
+                <b>63%</b>
+                <p>Weekly completion</p>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <h2>Weekly calendar</h2>
+
+              <button class="primary" id="planAdd">＋ Add session</button>
+            </div>
+
+            <div class="calendar" id="calendar"></div>
+          </section>
+
+          <!-- ================= PROGRESS ================= -->
+
+          <section id="progress" class="content-panel">
+            <div class="section-head">
+              <h2>Progress Center</h2>
+
+              <span> See where your effort is going </span>
+            </div>
+
+            <div class="stats">
+              <div class="stat-card">
+                <b id="overallProgress"> 0% </b>
+
+                <p>Overall curriculum</p>
+
+                <div class="bar" style="margin-top: 14px">
+                  <span id="overallBar" style="width: 0%"> </span>
+                </div>
+              </div>
+
+              <div class="stat-card">
+                <b id="completedCount"> 0 </b>
+
+                <p>Lessons completed</p>
+              </div>
+
+              <div class="stat-card">
+                <b> 12 days </b>
+
+                <p>Current streak</p>
+              </div>
+            </div>
+
+            <div class="section-head">
+              <h2>Subject progress</h2>
+            </div>
+
+            <div class="cards" id="progressCards"></div>
+          </section>
+
+          <!-- ================= DATABASE ================= -->
+
+          <section id="database" class="content-panel">
+            <div class="section-head">
+              <h2>Study Database</h2>
+
+              <span> Homework, exams, mistakes, flashcards & resources </span>
+            </div>
+
+            <div class="toolbar">
+              <input
+                class="search"
+                id="dbSearch"
+                placeholder="Search your database..."
+              />
+
+              <button class="primary" id="dbAdd">＋ Add record</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th>Topic</th>
+                    <th>Type</th>
+                    <th>Teacher</th>
+                    <th>Duration</th>
+                    <th>Priority</th>
+                    <th>Revision</th>
+                    <th>Book/Page</th>
+                  </tr>
+                </thead>
+
+                <tbody id="dbTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ================= SETTINGS ================= -->
+
+          <section id="settings" class="content-panel">
+            <div class="section-head">
+              <h2>Settings</h2>
+
+              <span> Customize StudyOS </span>
+            </div>
+
+            <div class="settings-grid">
+              <div class="focus">
+                <h3>Appearance</h3>
+
+                <p>Switch between dark and light mode.</p>
+
+                <button class="primary" id="settingsThemeBtn">
+                  Toggle Theme
+                </button>
+              </div>
+
+              <div class="focus">
+                <h3>Progress</h3>
+
+                <p>Reset your demo lesson progress.</p>
+
+                <button class="danger" id="resetBtn">Reset Progress</button>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <!-- ================= VIDEO MODAL ================= -->
+
+      <div class="video-modal" id="videoModal">
+        <div class="video-box">
+          <div class="video-header">
+            <strong id="videoTitle"> Lesson </strong>
+
+            <button class="video-close" id="videoClose">×</button>
+          </div>
+
+          <iframe
+            id="videoFrame"
+            class="video-frame"
+            src=""
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            allowfullscreen
+          >
+          </iframe>
+
+          <div class="video-fallback" id="videoFallback">
+            <p>
+              If the player shows a 403 error, the video provider is blocking
+              the embed.
+            </p>
+
+            <button class="primary" id="openVideoExternal">
+              Try opening video ↗
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOAST -->
+
+    <div class="toast" id="toast">Saved</div>
+  </body>
+</html>
