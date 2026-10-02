@@ -271,14 +271,18 @@ try {
     );
   }
 
-  const storedLessons = JSON.parse(localStorage.getItem("studyos_lessons") || "[]");
+  const storedLessons = JSON.parse(
+    localStorage.getItem("studyos_lessons") || "[]",
+  );
   if (Array.isArray(storedLessons)) {
     savedLessons = storedLessons.filter(
       (lesson) => Array.isArray(lesson) && lesson.length >= 5,
     );
     lessons.push(...savedLessons);
   }
-  const storedCompleted = JSON.parse(localStorage.getItem("studyos_completed") || "[]");
+  const storedCompleted = JSON.parse(
+    localStorage.getItem("studyos_completed") || "[]",
+  );
   if (Array.isArray(storedCompleted)) legacyCompletedTitles = storedCompleted;
 } catch (error) {
   console.warn("Could not read legacy StudyOS data", error);
@@ -301,6 +305,9 @@ let lessonIdsByKey = new Map();
 let hiddenLessonIds = new Set();
 let backendErrorMessage = "";
 let authMode = "signin";
+let tutorConversation = [];
+let tutorLoading = false;
+let tutorRequestVersion = 0;
 
 let currentVideoUrl = "";
 
@@ -326,13 +333,17 @@ const WEEKDAYS = [
 ];
 
 function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[character]);
+  return String(value).replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character],
+  );
 }
 
 /* ========================================
@@ -493,7 +504,9 @@ function initSupabase() {
     }, 0);
   });
 
-  loadCurrentUser().catch((error) => reportBackendError("Checking sign-in", error));
+  loadCurrentUser().catch((error) =>
+    reportBackendError("Checking sign-in", error),
+  );
 }
 
 let loadedUserId = null;
@@ -510,6 +523,11 @@ async function handleAuthStateChange() {
   updateAuthUI();
   const nextUserId = currentUser?.id || null;
   if (nextUserId === loadedUserId) return;
+  tutorRequestVersion += 1;
+  setTutorBusy(false);
+  tutorConversation = [];
+  renderTutorConversation();
+  $("#tutorStatus").textContent = "Ask a question to get started.";
   loadedUserId = nextUserId;
 
   if (!currentUser) {
@@ -554,7 +572,9 @@ async function handleAuthStateChange() {
     renderToday();
     renderCalendar();
     updatePlanStats();
-    setBackendNotice(`Signed in as ${currentUser.email}. Your study data is synced.`);
+    setBackendNotice(
+      `Signed in as ${currentUser.email}. Your study data is synced.`,
+    );
   } catch (error) {
     loadedUserId = null;
     throw error;
@@ -590,7 +610,9 @@ async function migrateLegacyLessons() {
 async function loadLessonCatalog() {
   const { data, error } = await supabaseClient
     .from("lessons")
-    .select("id, owner_user_id, subject, chapter, title, lesson_type, teacher, video_url, duration");
+    .select(
+      "id, owner_user_id, subject, chapter, title, lesson_type, teacher, video_url, duration",
+    );
   if (error) throw error;
 
   lessonRows = data || [];
@@ -708,9 +730,7 @@ async function loadWeeklyPlan() {
     if (templates?.length) {
       const { error: insertError } = await supabaseClient
         .from("weekly_plan")
-        .insert(
-          templates.map((row) => ({ ...row, user_id: currentUser.id })),
-        );
+        .insert(templates.map((row) => ({ ...row, user_id: currentUser.id })));
       if (insertError && insertError.code !== "23505") throw insertError;
       ({ data, error } = await supabaseClient
         .from("weekly_plan")
@@ -801,8 +821,16 @@ function openRecordForm(record = null) {
   $("#recordFormMessage").textContent = "";
   if (record) {
     for (const field of [
-      "subject", "topic", "record_type", "teacher", "duration", "content",
-      "score", "max_score", "book_page", "resource_url",
+      "subject",
+      "topic",
+      "record_type",
+      "teacher",
+      "duration",
+      "content",
+      "score",
+      "max_score",
+      "book_page",
+      "resource_url",
     ]) {
       form.elements[field].value = record[field] ?? "";
     }
@@ -861,7 +889,8 @@ async function deleteStudyRecord(id) {
   const recordIndex = databaseRecords.findIndex((record) => record.id === id);
   if (recordIndex < 0) return;
   const record = databaseRecords[recordIndex];
-  if (!confirm(`Delete the ${record.record_type} record “${record.topic}”?`)) return;
+  if (!confirm(`Delete the ${record.record_type} record “${record.topic}”?`))
+    return;
 
   const userId = currentUser.id;
   databaseRecords.splice(recordIndex, 1);
@@ -876,7 +905,8 @@ async function deleteStudyRecord(id) {
       .select("id")
       .maybeSingle();
     if (error) throw error;
-    if (!data) throw new Error("This record was not found or is no longer available.");
+    if (!data)
+      throw new Error("This record was not found or is no longer available.");
     toast("Record deleted");
   } catch (error) {
     if (currentUser?.id === userId) {
@@ -996,7 +1026,8 @@ async function deleteTask(id) {
       .select("id")
       .maybeSingle();
     if (error) throw error;
-    if (!data) throw new Error("This task was not found or is no longer available.");
+    if (!data)
+      throw new Error("This task was not found or is no longer available.");
     toast("Task deleted");
   } catch (error) {
     if (currentUser?.id === userId) {
@@ -1231,7 +1262,8 @@ function renderCurrentStreak() {
     cursor.setDate(cursor.getDate() - 1);
   }
   $("#dayStreakValue").textContent = streak;
-  $("#progressStreakValue").textContent = `${streak} day${streak === 1 ? "" : "s"}`;
+  $("#progressStreakValue").textContent =
+    `${streak} day${streak === 1 ? "" : "s"}`;
 }
 
 /* ========================================
@@ -1243,11 +1275,15 @@ function renderToday() {
   const todaysTasks = studyTasks
     .filter((task) => task.scheduled_date === today)
     .sort((a, b) =>
-      String(a.scheduled_time || "").localeCompare(String(b.scheduled_time || "")),
+      String(a.scheduled_time || "").localeCompare(
+        String(b.scheduled_time || ""),
+      ),
     );
 
   const taskRows = todaysTasks.length
-    ? todaysTasks.map((task) => `
+    ? todaysTasks
+        .map(
+          (task) => `
         <tr>
           <td><input class="check task-check" type="checkbox" data-task-id="${task.id}" ${task.status === "Completed" ? "checked" : ""} aria-label="Mark ${escapeHTML(task.title)} complete"></td>
           <td>${escapeHTML((task.scheduled_time || "").slice(0, 5) || "—")}</td>
@@ -1255,7 +1291,9 @@ function renderToday() {
           <td>${escapeHTML(task.title)}</td>
           <td><span style="color:var(--orange)">● ${escapeHTML(task.status)}</span></td>
         </tr>
-      `).join("")
+      `,
+        )
+        .join("")
     : `<tr><td colspan="5" class="empty-cell">No tasks scheduled for today.</td></tr>`;
 
   $("#todayTable").innerHTML = `${taskRows}
@@ -1273,7 +1311,8 @@ function renderToday() {
     });
   });
 
-  $("#plannedTodayValue").textContent = `${todaysTasks.length} task${todaysTasks.length === 1 ? "" : "s"}`;
+  $("#plannedTodayValue").textContent =
+    `${todaysTasks.length} task${todaysTasks.length === 1 ? "" : "s"}`;
   $("#remainingTasksValue").textContent = todaysTasks.filter(
     (task) => task.status !== "Completed",
   ).length;
@@ -1427,7 +1466,8 @@ function renderLessons() {
                             }
 
                             ${
-                              savedLessons.includes(lesson) || lesson[2] === "Video"
+                              savedLessons.includes(lesson) ||
+                              lesson[2] === "Video"
                                 ? `
                                     <button
                                         class="lesson-delete"
@@ -1511,7 +1551,10 @@ async function toggleLesson(id, isCompleted) {
     return;
   }
   if (!id) {
-    setBackendNotice("Run the lesson seed SQL before saving lesson progress.", "error");
+    setBackendNotice(
+      "Run the lesson seed SQL before saving lesson progress.",
+      "error",
+    );
     renderLessons();
     return;
   }
@@ -1557,7 +1600,10 @@ async function deleteLesson(lesson, isSavedLesson) {
   if (!requireSignedIn()) return;
   const id = lessonId(lesson);
   if (!id) {
-    setBackendNotice("Run the lesson seed SQL before deleting lessons.", "error");
+    setBackendNotice(
+      "Run the lesson seed SQL before deleting lessons.",
+      "error",
+    );
     return;
   }
 
@@ -1579,10 +1625,12 @@ async function deleteLesson(lesson, isSavedLesson) {
         (record) => record.lesson_id !== id,
       );
     } else {
-      const { error } = await supabaseClient.from("user_hidden_lessons").insert({
-        user_id: currentUser.id,
-        lesson_id: id,
-      });
+      const { error } = await supabaseClient
+        .from("user_hidden_lessons")
+        .insert({
+          user_id: currentUser.id,
+          lesson_id: id,
+        });
       if (error && error.code !== "23505") throw error;
       hiddenLessonIds.add(id);
     }
@@ -1744,12 +1792,14 @@ function renderDatabase() {
   );
 
   $("#dbTable").innerHTML = filtered.length
-    ? filtered.map((record) => {
-        const resourceUrl = safeHttpUrl(record.resource_url);
-        const score = record.score == null
-          ? "—"
-          : `${record.score}${record.max_score == null ? "" : ` / ${record.max_score}`}`;
-        return `
+    ? filtered
+        .map((record) => {
+          const resourceUrl = safeHttpUrl(record.resource_url);
+          const score =
+            record.score == null
+              ? "—"
+              : `${record.score}${record.max_score == null ? "" : ` / ${record.max_score}`}`;
+          return `
           <tr>
             <td><b>${escapeHTML(record.subject)}</b></td>
             <td>${escapeHTML(record.topic)}</td>
@@ -1765,17 +1815,22 @@ function renderDatabase() {
               <button class="icon-btn record-delete" type="button" data-record-id="${record.id}" aria-label="Delete ${escapeHTML(record.record_type)} record: ${escapeHTML(record.topic)}">Delete</button>
             </td>
           </tr>`;
-      }).join("")
+        })
+        .join("")
     : `<tr><td colspan="10" class="empty-cell">${currentUser ? "No study records yet. Add your first record." : "Sign in to view your private study records."}</td></tr>`;
 
   $$(".record-edit").forEach((button) => {
     button.addEventListener("click", () => {
-      const record = databaseRecords.find((item) => item.id === button.dataset.recordId);
+      const record = databaseRecords.find(
+        (item) => item.id === button.dataset.recordId,
+      );
       if (record) openRecordForm(record);
     });
   });
   $$(".record-delete").forEach((button) => {
-    button.addEventListener("click", () => deleteStudyRecord(button.dataset.recordId));
+    button.addEventListener("click", () =>
+      deleteStudyRecord(button.dataset.recordId),
+    );
   });
 }
 
@@ -1793,16 +1848,25 @@ function renderCalendar() {
     date.setDate(weekStart.getDate() + index);
     const dateText = localDateString(date);
     const planItems = weeklyPlanRows.filter((item) => item.day_of_week === day);
-    const dayTasks = studyTasks.filter((task) => task.scheduled_date === dateText);
-    const planMarkup = planItems.map((item) =>
-      `<div class="task"><b>${escapeHTML(item.subject)}</b> · ${escapeHTML(item.task)}${item.duration ? ` · ${escapeHTML(item.duration)}h` : ""}</div>`,
-    ).join("");
-    const taskMarkup = dayTasks.map((task) => `
+    const dayTasks = studyTasks.filter(
+      (task) => task.scheduled_date === dateText,
+    );
+    const planMarkup = planItems
+      .map(
+        (item) =>
+          `<div class="task"><b>${escapeHTML(item.subject)}</b> · ${escapeHTML(item.task)}${item.duration ? ` · ${escapeHTML(item.duration)}h` : ""}</div>`,
+      )
+      .join("");
+    const taskMarkup = dayTasks
+      .map(
+        (task) => `
       <div class="task task-entry ${task.status === "Completed" ? "task-done" : ""}">
         <label><input class="check task-check" type="checkbox" data-task-id="${task.id}" ${task.status === "Completed" ? "checked" : ""} aria-label="Mark ${escapeHTML(task.title)} complete">
         ${escapeHTML((task.scheduled_time || "").slice(0, 5))} ${escapeHTML(task.subject)} · ${escapeHTML(task.title)}</label>
         <button class="task-delete" type="button" data-task-id="${task.id}" aria-label="Delete task: ${escapeHTML(task.title)}">Delete</button>
-      </div>`).join("");
+      </div>`,
+      )
+      .join("");
     return `
       <div class="day ${day === activeDay ? "active" : ""}">
         <b>${day.slice(0, 3)} <small>${dateText.slice(5)}</small></b>
@@ -1831,7 +1895,8 @@ function updatePlanStats() {
   const startText = localDateString(weekStart);
   const endText = localDateString(weekEnd);
   const thisWeeksTasks = studyTasks.filter(
-    (task) => task.scheduled_date >= startText && task.scheduled_date <= endText,
+    (task) =>
+      task.scheduled_date >= startText && task.scheduled_date <= endText,
   );
   const completedCount = thisWeeksTasks.filter(
     (task) => task.status === "Completed",
@@ -1842,6 +1907,334 @@ function updatePlanStats() {
   $("#weeklyTaskProgress").textContent = count
     ? `${Math.round((completedCount / count) * 100)}%`
     : "0%";
+}
+
+/* ========================================
+   AI STUDY TUTOR
+======================================== */
+
+function normalizeTutorMarkdown(content) {
+  const rows = String(content ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  let insideFence = false;
+
+  return rows
+    .map((row) => {
+      if (/^\s*```/.test(row)) {
+        insideFence = !insideFence;
+        return row;
+      }
+      if (insideFence) return row;
+
+      // Protect math and inline code while fixing only common escaped Markdown.
+      const protectedValues = [];
+      let normalized = row.replace(
+        /(`+)(.*?)\1|\$\$.*?\$\$|\$[^$\n]+\$|\\\[.*?\\\]|\\\(.*?\\\)/g,
+        (match) => {
+          const marker = `\u0000${protectedValues.length}\u0000`;
+          protectedValues.push(match);
+          return marker;
+        },
+      );
+
+      normalized = normalized
+        .replace(/^(\s*)\\+(?=(?:#{1,3}|>|[-+*]|\d+[.)])\s?)/, "$1")
+        .replace(/\\\*\\\*([\s\S]+?)\\\*\\\*/g, "**$1**")
+        .replace(/\\\*([^*\n]+?)\\\*/g, "*$1*")
+        .replace(/\\_\\_([^_\n]+?)\\_\\_/g, "__$1__");
+
+      return normalized.replace(
+        /\u0000(\d+)\u0000/g,
+        (_match, index) => protectedValues[Number(index)],
+      );
+    })
+    .join("\n");
+}
+
+function renderTutorInlineMarkdown(text) {
+  const protectedValues = [];
+  let source = String(text ?? "").replace(
+    /(`+)(.*?)\1|\$\$.*?\$\$|\$[^$\n]+\$|\\\[.*?\\\]|\\\(.*?\\\)/g,
+    (match) => {
+      const marker = `\u0000${protectedValues.length}\u0000`;
+      protectedValues.push({ match, isCode: match.startsWith("`") });
+      return marker;
+    },
+  );
+
+  source = escapeHTML(source)
+    .replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_\n]+?)__/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+?)\*(?=$|[\s).,!?:;])/g, "$1<em>$2</em>")
+    .replace(/(^|[\s(])_([^_\n]+?)_(?=$|[\s).,!?:;])/g, "$1<em>$2</em>")
+    .replace(/\u0000(\d+)\u0000/g, (_match, index) => {
+      const item = protectedValues[Number(index)];
+      return item.isCode
+        ? `<code class="ai-inline-code">${escapeHTML(item.match.replace(/^`+|`+$/g, ""))}</code>`
+        : escapeHTML(item.match);
+    });
+
+  return source;
+}
+
+function renderTutorMarkdown(content) {
+  const lines = normalizeTutorMarkdown(content).split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let listType = "";
+  let listItems = [];
+  let quoteLines = [];
+  let codeLines = [];
+  let codeLanguage = "";
+  let insideFence = false;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(
+      `<p>${paragraph.map(renderTutorInlineMarkdown).join("<br>")}</p>`,
+    );
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listType) return;
+    blocks.push(
+      `<${listType}>${listItems.map((item) => `<li>${renderTutorInlineMarkdown(item)}</li>`).join("")}</${listType}>`,
+    );
+    listType = "";
+    listItems = [];
+  };
+  const flushQuote = () => {
+    if (!quoteLines.length) return;
+    blocks.push(
+      `<blockquote>${quoteLines.map(renderTutorInlineMarkdown).join("<br>")}</blockquote>`,
+    );
+    quoteLines = [];
+  };
+
+  for (const line of lines) {
+    const fence = line.match(/^\s*```\s*([\w+-]*)\s*$/);
+    if (fence) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      if (insideFence) {
+        const code = codeLines.join("\n");
+        if (["math", "perl"].includes(codeLanguage.toLowerCase())) {
+          // Keep LaTeX backslashes intact; only the fixed delimiters are added here.
+          blocks.push(
+            `<div class="ai-math-block">\\[${escapeHTML(code)}\\]</div>`,
+          );
+        } else {
+          blocks.push(
+            `<pre class="ai-code-block"><code>${escapeHTML(code)}</code></pre>`,
+          );
+        }
+        codeLines = [];
+        codeLanguage = "";
+      } else {
+        codeLanguage = fence[1];
+      }
+      insideFence = !insideFence;
+      continue;
+    }
+    if (insideFence) {
+      codeLines.push(line);
+      continue;
+    }
+
+    const heading = line.match(/^\s*(#{1,3})\s+(.+?)\s*#*\s*$/);
+    const unordered = line.match(/^\s*[-+*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    const quote = line.match(/^\s*>\s?(.*)$/);
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+    } else if (heading) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      const level = heading[1].length;
+      blocks.push(
+        `<h${level}>${renderTutorInlineMarkdown(heading[2])}</h${level}>`,
+      );
+    } else if (unordered || ordered) {
+      flushParagraph();
+      flushQuote();
+      const nextType = unordered ? "ul" : "ol";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push((unordered || ordered)[1]);
+    } else if (quote) {
+      flushParagraph();
+      flushList();
+      quoteLines.push(quote[1]);
+    } else {
+      flushList();
+      flushQuote();
+      paragraph.push(line);
+    }
+  }
+
+  flushParagraph();
+  flushList();
+  flushQuote();
+  if (insideFence) {
+    const code = codeLines.join("\n");
+    if (["math", "perl"].includes(codeLanguage.toLowerCase())) {
+      blocks.push(`<div class="ai-math-block">\\[${escapeHTML(code)}\\]</div>`);
+    } else {
+      blocks.push(
+        `<pre class="ai-code-block"><code>${escapeHTML(code)}</code></pre>`,
+      );
+    }
+  }
+  return blocks.join("");
+}
+
+function renderTutorMath(container) {
+  if (typeof window.renderMathInElement !== "function") return;
+  try {
+    window.renderMathInElement(container, {
+      delimiters: [
+        { left: "$$", right: "$$", display: true },
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false },
+        { left: "$", right: "$", display: false },
+      ],
+      throwOnError: false,
+      trust: false,
+      ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+    });
+  } catch (error) {
+    // Keep the Markdown response readable if a math expression cannot be rendered.
+    console.warn("AI Tutor math rendering was skipped:", error);
+  }
+}
+
+function renderTutorConversation() {
+  const messages = $("#tutorMessages");
+  if (!messages) return;
+
+  const messageMarkup = tutorConversation
+    .map(
+      (entry) => `
+    <article class="ai-message ${entry.role === "user" ? "user" : entry.role === "error" ? "error" : "assistant"}">
+      <span class="ai-message-author">${entry.role === "user" ? "You" : entry.role === "error" ? "Tutor status" : "AI Tutor"}</span>
+      <div class="ai-message-content">${entry.role === "assistant" ? renderTutorMarkdown(entry.content) : `<p>${escapeHTML(entry.content).replace(/\n/g, "<br>")}</p>`}</div>
+    </article>`,
+    )
+    .join("");
+  const loadingMarkup = tutorLoading
+    ? `<article class="ai-message assistant ai-thinking"><span class="ai-message-author">AI Tutor</span><p>Thinking through this with you…</p></article>`
+    : "";
+
+  messages.innerHTML = `${messageMarkup}${loadingMarkup}`;
+  if (!messageMarkup && !tutorLoading) {
+    messages.innerHTML = `<div class="ai-chat-empty"><span>🤖</span><p>Your study conversation will appear here.</p><small>Choose a subject, add a topic, and ask a question.</small></div>`;
+  }
+  messages
+    .querySelectorAll(".ai-message.assistant .ai-message-content")
+    .forEach(renderTutorMath);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+async function tutorErrorMessage(error) {
+  const status = error?.context?.status;
+  if (status === 401)
+    return "Your sign-in may have expired. Sign in again, then retry your question.";
+  if (status === 404)
+    return "The AI Tutor service is not deployed yet. Deploy the Supabase Edge Function, then try again.";
+  if (/fetch|network/i.test(String(error?.message || ""))) {
+    return "I couldn't reach the AI Tutor service. Check your connection and try again.";
+  }
+  if (error?.context instanceof Response) {
+    try {
+      const responseBody = await error.context.clone().json();
+      if (typeof responseBody?.error === "string") return responseBody.error;
+    } catch {
+      // Use the general message below if the Edge Function response was not JSON.
+    }
+  }
+  return "I couldn't get a response right now. Please try again in a moment.";
+}
+
+function setTutorBusy(isBusy) {
+  tutorLoading = isBusy;
+  const sendButton = $("#tutorSend");
+  const messageInput = $("#tutorMessage");
+  const clearButton = $("#clearTutorChat");
+  if (sendButton) sendButton.disabled = isBusy;
+  if (messageInput) messageInput.disabled = isBusy;
+  if (clearButton) clearButton.disabled = isBusy;
+  $$(".ai-starter").forEach((button) => {
+    button.disabled = isBusy;
+  });
+}
+
+async function sendTutorMessage(message) {
+  const cleanMessage = String(message || "").trim();
+  if (!cleanMessage || tutorLoading) return;
+  if (!requireSignedIn()) return;
+  if (!supabaseClient) {
+    tutorConversation.push({
+      role: "error",
+      content:
+        "Supabase is not available. Check your connection and reload StudyOS.",
+    });
+    renderTutorConversation();
+    return;
+  }
+
+  const userId = currentUser.id;
+  const requestVersion = ++tutorRequestVersion;
+  const conversation = tutorConversation
+    .filter((entry) => entry.role === "user" || entry.role === "assistant")
+    .slice(-20)
+    .map(({ role, content }) => ({ role, content }));
+  tutorConversation.push({ role: "user", content: cleanMessage });
+  tutorConversation = tutorConversation.slice(-40);
+  setTutorBusy(true);
+  $("#tutorStatus").textContent = "Your tutor is preparing an explanation…";
+  renderTutorConversation();
+
+  try {
+    const { data, error } = await supabaseClient.functions.invoke("ai-tutor", {
+      body: {
+        subject: $("#tutorSubject").value,
+        topic: $("#tutorTopic").value.trim(),
+        message: cleanMessage,
+        conversation,
+      },
+    });
+    if (error) throw error;
+    if (requestVersion !== tutorRequestVersion || currentUser?.id !== userId)
+      return;
+    if (typeof data?.reply !== "string" || !data.reply.trim()) {
+      throw new Error("The AI Tutor returned an empty response.");
+    }
+    tutorConversation.push({ role: "assistant", content: data.reply.trim() });
+    tutorConversation = tutorConversation.slice(-40);
+    $("#tutorStatus").textContent = "Ready when you are.";
+  } catch (error) {
+    if (requestVersion !== tutorRequestVersion || currentUser?.id !== userId)
+      return;
+    const messageText = await tutorErrorMessage(error);
+    if (requestVersion !== tutorRequestVersion || currentUser?.id !== userId)
+      return;
+    tutorConversation.push({ role: "error", content: messageText });
+    tutorConversation = tutorConversation.slice(-40);
+    $("#tutorStatus").textContent = "The last message could not be sent.";
+    console.error("AI Tutor request failed:", error);
+  } finally {
+    if (requestVersion === tutorRequestVersion) {
+      setTutorBusy(false);
+      renderTutorConversation();
+      $("#tutorMessage").focus();
+    }
+  }
 }
 
 /* ========================================
@@ -1874,6 +2267,8 @@ function showPage(pageId) {
 
     database: "Study Database",
 
+    "ai-tutor": "AI Study Tutor",
+
     settings: "Settings",
   };
 
@@ -1905,6 +2300,34 @@ function openLessons(subject) {
 $$(".nav button").forEach((button) => {
   button.addEventListener("click", () => {
     showPage(button.dataset.page);
+  });
+});
+
+$("#dashboardAiTutor").addEventListener("click", () => {
+  showPage("ai-tutor");
+  $("#tutorMessage").focus();
+});
+
+$("#tutorForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const messageInput = $("#tutorMessage");
+  const message = messageInput.value;
+  if (!message.trim()) return;
+  if (!requireSignedIn()) return;
+  messageInput.value = "";
+  sendTutorMessage(message);
+});
+
+$("#clearTutorChat").addEventListener("click", () => {
+  tutorConversation = [];
+  $("#tutorStatus").textContent = "Ask a question to get started.";
+  renderTutorConversation();
+});
+
+$$(".ai-starter").forEach((button) => {
+  button.addEventListener("click", () => {
+    $("#tutorMessage").value = button.dataset.tutorPrompt;
+    $("#tutorForm").requestSubmit();
   });
 });
 
@@ -1968,7 +2391,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-$$('[data-close-modal]').forEach((button) => {
+$$("[data-close-modal]").forEach((button) => {
   button.addEventListener("click", () => closeModal(button.dataset.closeModal));
 });
 
@@ -2010,7 +2433,8 @@ $("#authForm").addEventListener("submit", async (event) => {
   const form = event.currentTarget;
   const message = $("#authFormMessage");
   if (!supabaseClient) {
-    message.textContent = "Supabase client is unavailable. Check your connection and reload.";
+    message.textContent =
+      "Supabase client is unavailable. Check your connection and reload.";
     return;
   }
   const fields = new FormData(form);
@@ -2018,18 +2442,21 @@ $("#authForm").addEventListener("submit", async (event) => {
   const password = String(fields.get("password") || "");
   const button = $("#authSubmitButton");
   button.disabled = true;
-  message.textContent = authMode === "signin" ? "Signing in…" : "Creating account…";
+  message.textContent =
+    authMode === "signin" ? "Signing in…" : "Creating account…";
   try {
-    const result = authMode === "signin"
-      ? await supabaseClient.auth.signInWithPassword({ email, password })
-      : await supabaseClient.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: window.location.href.split("#")[0] },
-        });
+    const result =
+      authMode === "signin"
+        ? await supabaseClient.auth.signInWithPassword({ email, password })
+        : await supabaseClient.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: window.location.href.split("#")[0] },
+          });
     if (result.error) throw result.error;
     if (authMode === "signup" && !result.data.session) {
-      message.textContent = "Check your email to confirm the account, then sign in.";
+      message.textContent =
+        "Check your email to confirm the account, then sign in.";
       return;
     }
     closeModal("authModal");
@@ -2106,7 +2533,9 @@ $("#lessonForm").addEventListener("submit", async (event) => {
         video_url: url,
         duration: durationValue ? Number(durationValue) : null,
       })
-      .select("id, owner_user_id, subject, chapter, title, lesson_type, teacher, video_url, duration")
+      .select(
+        "id, owner_user_id, subject, chapter, title, lesson_type, teacher, video_url, duration",
+      )
       .single();
     if (error) throw error;
     const lesson = lessonArrayFromRow(data);
@@ -2177,6 +2606,7 @@ function initializeApp() {
   renderDatabase();
   renderCalendar();
   updatePlanStats();
+  renderTutorConversation();
   initSupabase();
 }
 
